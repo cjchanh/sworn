@@ -28,6 +28,7 @@ For full threat model and scope boundaries:
 - `GOVERNANCE_OVERVIEW.md`
 - `RELEASE_PROCESS.md`
 - `docs/config.md`
+- `docs/DEPLOYMENT.md`
 
 ## Governance Architecture
 
@@ -53,7 +54,8 @@ pip install sworncode
 cd your-repo
 sworn init
 
-# That's it. Every commit is now gated.
+# That's it. Local commits in this repo now run through Sworn.
+# For team-wide fail-closed posture, require the CI gate in docs/DEPLOYMENT.md.
 # Try committing a file in a sensitive path:
 mkdir -p crypto
 echo "secret = 'key'" > crypto/vault.py
@@ -74,6 +76,8 @@ Sworn runs a 5-stage gate pipeline during local commit checks and CI diff checks
 
 Every stage is deterministic. No AI in the governance loop. No network calls.
 No probabilistic analysis. A gate either passes or blocks.
+
+For team-wide fail-closed posture, treat local hooks as developer fast-fail and make the CI gate a required status check. See `docs/DEPLOYMENT.md`.
 
 ## Commands
 

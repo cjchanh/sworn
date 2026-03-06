@@ -147,6 +147,7 @@ Sworn release flow is intentionally split:
 - Start from the committed Phase-0 state with a clean working tree.
 - Create the signed tag for the exact commit that already contains release evidence.
 - Publish the package and record the signed tag identity plus publish reference in release notes or an external operator log.
+- Generate the phase-1 release identity block with `./scripts/release_phase1_capture.sh --version <version> --maintainer <name> --pypi-url <url>` and attach it to the signed release notes or external operator log.
 - If a portable release bundle is required, rebuild or annotate it after phase1 so it reflects the final signed tag metadata.
 
 Combining evidence generation and tag capture in one dirty working tree is prohibited.
@@ -171,7 +172,7 @@ Combining evidence generation and tag capture in one dirty working tree is prohi
 For every tagged release, capture and retain artifacts in an auditable location:
 
 - `.github/workflows/`-independent default path: `release-evidence/<tag>/`
-- Tag value used in artifact path names (for example: `release-evidence/0.3.0/`)
+- Tag value used in artifact path names (for example: `release-evidence/<version>/`)
 
 Capture at minimum:
 
@@ -193,7 +194,7 @@ Capture at minimum:
   - `git rev-parse HEAD | tee release-evidence/<tag>/phase0-start-sha.txt`
   - `git status --short | tee release-evidence/<tag>/working-tree-at-start.txt`
 - Release identity:
-  - Signed tag reference, tag object SHA, and publish reference stored in release notes or external operator log after Phase 0 evidence is committed
+  - Signed tag reference, tag object SHA, tagged commit SHA, maintainer identity, and publish reference stored in release notes or external operator log after Phase 0 evidence is committed
 - Artifact integrity:
   - Build artifacts with `python -m build --no-isolation` and store `sha256` manifest at `release-evidence/<tag>/dist-shas.txt`
 
@@ -218,6 +219,7 @@ Evidence artifacts must be:
 
 For the in-repo model, the committed phase-0 bundle is the pre-tag evidence snapshot.
 The exact signed-tag identity is finalized in release notes or an external operator log during phase1.
+Do not backfill or mutate the committed phase-0 evidence folder after tag publication.
 
 Modifying artifacts after tag publication invalidates the release record and requires
 corrective re-release.
