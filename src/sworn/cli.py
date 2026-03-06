@@ -14,6 +14,12 @@ from sworn.evidence.report import generate_report
 from sworn.pipeline import run_pipeline
 
 
+_KEY_GITIGNORE_PATTERNS = (
+    ".sworn/keys/active.key",
+    ".sworn/signing.key",
+)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for the sworn CLI."""
     parser = argparse.ArgumentParser(
@@ -42,11 +48,6 @@ def main(argv: list[str] | None = None) -> int:
         "--cmmc",
         action="store_true",
         help="CMMC compliance report",
-    )
-    report_p.add_argument(
-        "--soc2",
-        action="store_true",
-        help="SOC 2 compliance report (requires sworn-soc2 pack)",
     )
 
     # status
@@ -78,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_check(args.repo_root)
     elif args.command == "report":
         fmt = "json" if args.json else "text"
-        return cmd_report(args.repo_root, fmt, args.since, args.cmmc, args.soc2)
+        return cmd_report(args.repo_root, fmt, args.since, args.cmmc)
     elif args.command == "status":
         return cmd_status(args.repo_root)
     elif args.command == "verify":
@@ -109,12 +110,83 @@ def _find_repo_root(override: Path | None = None) -> Path:
     return Path.cwd()
 
 
+def _run_git(
+    repo_root: Path,
+    args: list[str],
+    *,
+    timeout: int = 5,
+) -> subprocess.CompletedProcess[str]:
+    """Run a git command relative to repo_root."""
+    return subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        timeout=timeout,
+    )
+
+
+def _require_git_repo(repo_root: Path) -> None:
+    """Fail if repo_root is not a Git work tree."""
+    result = _run_git(repo_root, ["rev-parse", "--git-dir"])
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or f"{repo_root} is not a git repository")
+
+
+def _resolve_hooks_dir(repo_root: Path) -> Path:
+    """Resolve the effective Git hooks directory, honoring core.hooksPath."""
+    _require_git_repo(repo_root)
+
+    hooks_override = _run_git(
+        repo_root,
+        ["config", "--path", "--get", "core.hooksPath"],
+    )
+    if hooks_override.returncode == 0:
+        raw_path = hooks_override.stdout.strip()
+        if raw_path:
+            hook_dir = Path(raw_path)
+            if not hook_dir.is_absolute():
+                hook_dir = repo_root / hook_dir
+            return hook_dir.resolve()
+
+    hooks_dir = _run_git(repo_root, ["rev-parse", "--git-path", "hooks"])
+    if hooks_dir.returncode != 0:
+        raise RuntimeError(
+            hooks_dir.stderr.strip() or "Unable to resolve Git hooks directory"
+        )
+
+    hook_dir = Path(hooks_dir.stdout.strip())
+    if not hook_dir.is_absolute():
+        hook_dir = repo_root / hook_dir
+    return hook_dir.resolve()
+
+
+def _warn_for_missing_key_ignores(repo_root: Path) -> None:
+    """Warn if private key paths are not protected by .gitignore."""
+    gitignore = repo_root / ".gitignore"
+    if not gitignore.exists():
+        joined = ", ".join(_KEY_GITIGNORE_PATTERNS)
+        print(
+            "\n  WARNING: No .gitignore found. Add "
+            f"{joined} to prevent key leak."
+        )
+        return
+
+    content = gitignore.read_text()
+    missing = [
+        pattern for pattern in _KEY_GITIGNORE_PATTERNS
+        if pattern not in content and Path(pattern).name not in content
+    ]
+    if missing:
+        print(f"\n  WARNING: Add {', '.join(missing)} to .gitignore")
+
+
 def cmd_init(repo_root_override: Path | None) -> int:
     """Initialize sworn in a git repo."""
     repo_root = _find_repo_root(repo_root_override)
-    git_dir = repo_root / ".git"
-
-    if not git_dir.exists():
+    try:
+        hook_dir = _resolve_hooks_dir(repo_root)
+    except RuntimeError:
         print(f"Error: {repo_root} is not a git repository.", file=sys.stderr)
         return 1
 
@@ -130,7 +202,7 @@ def cmd_init(repo_root_override: Path | None) -> int:
         print(f"  Config already exists: {config_path.relative_to(repo_root)}")
 
     # Install pre-commit hook
-    hook_path = repo_root / ".git" / "hooks" / "pre-commit"
+    hook_path = hook_dir / "pre-commit"
     hook_line = 'sworn check || exit 1\n'
 
     if hook_path.exists():
@@ -148,7 +220,7 @@ def cmd_init(repo_root_override: Path | None) -> int:
         print("  Created pre-commit hook")
 
     print(f"\nSworn initialized in {repo_root}")
-    print("Every commit in this repo is now gated.")
+    print("Commits that run Git hooks in this repo are now gated.")
     return 0
 
 
@@ -295,7 +367,6 @@ def cmd_report(
     output_format: str,
     since: str | None,
     cmmc: bool,
-    soc2: bool,
 ) -> int:
     """Generate an evidence report."""
     repo_root = _find_repo_root(repo_root_override)
@@ -306,11 +377,6 @@ def cmd_report(
         from sworn.evidence.cmmc_report import generate_cmmc_report
         report = generate_cmmc_report(log_path, config, output_format)
         print(report)
-        return 0
-
-    if soc2:
-        print("SOC 2 compliance reporting requires the sworn-soc2 pack.")
-        print("See: https://sworncode.dev/packs")
         return 0
 
     config = load_config(repo_root)
@@ -340,9 +406,12 @@ def cmd_status(repo_root_override: Path | None) -> int:
     print(f"Config: {'present' if config_path.exists() else 'missing (using defaults)'}")
 
     # Hook
-    hook_path = repo_root / ".git" / "hooks" / "pre-commit"
     hook_installed = False
-    if hook_path.exists():
+    try:
+        hook_path = _resolve_hooks_dir(repo_root) / "pre-commit"
+    except RuntimeError:
+        hook_path = None
+    if hook_path is not None and hook_path.exists():
         hook_installed = "sworn check" in hook_path.read_text()
     print(f"Hook: {'installed' if hook_installed else 'not installed'}")
 
@@ -448,16 +517,6 @@ def cmd_keygen(repo_root_override: Path | None) -> int:
 
     print(f"  Created {priv_path.relative_to(repo_root)} (private — DO NOT COMMIT)")
     print(f"  Created {pub_path.relative_to(repo_root)} (public — safe to commit)")
-
-    # Warn about .gitignore
-    gitignore = repo_root / ".gitignore"
-    if gitignore.exists():
-        content = gitignore.read_text()
-        if "active.key" not in content:
-            print("\n  WARNING: Add 'active.key' to .gitignore")
-    else:
-        print(
-            "\n  WARNING: No .gitignore found. Add 'active.key' to prevent key leak."
-        )
+    _warn_for_missing_key_ignores(repo_root)
 
     return 0

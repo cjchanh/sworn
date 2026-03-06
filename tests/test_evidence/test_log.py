@@ -4,8 +4,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from sworn.evidence.log import (
     EvidenceEntry,
+    EvidenceLogError,
     append_entry,
     canonical_json,
     read_entries,
@@ -35,6 +38,12 @@ class TestEvidenceLog:
     def test_hash_chain_genesis(self, tmp_path: Path):
         log = tmp_path / "evidence.jsonl"
         assert read_last_hash(log) == "genesis"
+
+    def test_hash_chain_corrupt_log_fails_closed(self, tmp_path: Path):
+        log = tmp_path / "evidence.jsonl"
+        log.write_text("{not-json}\n")
+        with pytest.raises(EvidenceLogError, match="invalid JSON"):
+            read_last_hash(log)
 
     def test_hash_chain_integrity(self, tmp_path: Path):
         log = tmp_path / "evidence.jsonl"
@@ -97,6 +106,21 @@ class TestEvidenceLog:
             assert False, "Should have raised"
         except (NotADirectoryError, OSError):
             pass  # Expected — fail-closed behavior tested via pipeline
+
+    def test_append_corrupt_existing_log_fails_closed(self, tmp_path: Path):
+        log = tmp_path / "evidence.jsonl"
+        log.write_text("{not-json}\n")
+        entry = EvidenceEntry(
+            timestamp="2026-01-01T00:00:00Z",
+            actor="test",
+            tool=None,
+            files=[],
+            gates={},
+            kernels=[],
+            decision="PASS",
+        )
+        with pytest.raises(EvidenceLogError, match="invalid JSON"):
+            append_entry(log, entry, hash_chain=True)
 
     def test_signed_entry_has_signature(self, tmp_path: Path, signing_keypair):
         sk, vk, _ = signing_keypair

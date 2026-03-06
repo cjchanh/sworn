@@ -14,4 +14,5 @@ venv/
 *.so
 .coverage
 htmlcov/
-active.key
+.sworn/keys/active.key
+.sworn/signing.key

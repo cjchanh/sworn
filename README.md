@@ -2,8 +2,9 @@
 
 **Deterministic, fail-closed AI code governance. Every commit is sworn.**
 
-Sworn is a Python CLI that installs git pre-commit hooks, runs a configurable
-gate pipeline on every commit, and produces tamper-evident evidence logs.
+Sworn is a Python CLI that installs Git pre-commit hooks in the repository's
+effective hooks path, runs a configurable gate pipeline on local commit checks
+and CI diff checks, and produces tamper-evident evidence logs.
 
 Cross-tool enforcement for any AI coding tool that commits through git.
 
@@ -14,7 +15,7 @@ produces auditable evidence for compliance programs.
 
 - It solves ambiguous AI-code governance by enforcing explicit, deterministic rules.
 - It guarantees fail-closed behavior on signature, hashing, and CI enforcement failures.
-- It provides compliance-support reporting (CMMC-focused in 0.3.0).
+- It provides compliance-support reporting (CMMC-focused in 0.4.0).
 - It does not certify compliance, replace a C3PAO, or provide a PKI/identity trust service.
 - Engineering value: predictable commit outcomes, stronger evidence retention, and simpler policy enforcement.
 - Security value: tamper-evident logs, strict fail-closed semantics, and scoped threat assumptions.
@@ -26,6 +27,8 @@ For full threat model and scope boundaries:
 - `COMPLIANCE_SCOPE.md`
 - `GOVERNANCE_OVERVIEW.md`
 - `RELEASE_PROCESS.md`
+- `docs/config.md`
+- `docs/DEPLOYMENT.md`
 
 ## Governance Architecture
 
@@ -51,7 +54,8 @@ pip install sworncode
 cd your-repo
 sworn init
 
-# That's it. Every commit is now gated.
+# That's it. Local commits in this repo now run through Sworn.
+# For team-wide fail-closed posture, require the CI gate in docs/DEPLOYMENT.md.
 # Try committing a file in a sensitive path:
 mkdir -p crypto
 echo "secret = 'key'" > crypto/vault.py
@@ -62,7 +66,7 @@ git commit -m "test"
 
 ## What It Does
 
-Sworn runs a 5-stage gate pipeline on every `git commit`:
+Sworn runs a 5-stage gate pipeline during local commit checks and CI diff checks:
 
 1. **Identity** — Detects the actor and AI tool from environment
 2. **Security** — Blocks commits touching sensitive paths (configurable)
@@ -73,6 +77,8 @@ Sworn runs a 5-stage gate pipeline on every `git commit`:
 Every stage is deterministic. No AI in the governance loop. No network calls.
 No probabilistic analysis. A gate either passes or blocks.
 
+For team-wide fail-closed posture, treat local hooks as developer fast-fail and make the CI gate a required status check. See `docs/DEPLOYMENT.md`.
+
 ## Commands
 
 ```bash
@@ -80,6 +86,7 @@ sworn init              # Initialize sworn in a git repo
 sworn check             # Run gate pipeline (called by pre-commit hook)
 sworn report            # Show evidence summary
 sworn report --json     # Machine-readable output
+sworn report --cmmc     # CMMC evidence-support report
 sworn status            # Show initialization and config state
 sworn verify            # Verify evidence chain integrity
 python -m sworn          # Run command through module entrypoint

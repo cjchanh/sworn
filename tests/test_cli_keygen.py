@@ -33,3 +33,13 @@ class TestKeygen:
         cmd_keygen(tmp_repo)
         captured = capsys.readouterr()
         assert re.search(r"active.key", captured.out, re.IGNORECASE)
+        assert re.search(r"signing.key", captured.out, re.IGNORECASE)
+
+    def test_keygen_warns_when_legacy_path_missing_from_gitignore(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        (tmp_repo / ".gitignore").write_text(".sworn/keys/active.key\n")
+
+        cmd_keygen(tmp_repo)
+        captured = capsys.readouterr()
+
+        assert "WARNING: Add .sworn/signing.key to .gitignore" in captured.out

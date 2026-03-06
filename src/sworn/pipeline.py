@@ -145,31 +145,35 @@ def run_pipeline(
         "BLOCKED" if trace.final_decision == "BLOCKED" else "PASS"
     )
 
-    # 5. Load signing key if present (fail-closed)
+    # 5. Load signing key in signed mode (fail-closed)
     signing_key = None
     key_path = repo_root / config.signing_key_path
-    if (
-        config.signing_enabled
-        and not signing_migration_block
-        and key_path.exists()
-    ):
+    if config.signing_enabled and not signing_migration_block:
         from sworn.evidence.signing import (
             SigningError,
             SigningUnavailableError,
             load_signing_key,
         )
-        try:
-            signing_key = load_signing_key(key_path)
-        except SigningUnavailableError:
+        if not key_path.exists():
             decision = "BLOCKED"
-            reason = "Signing key exists but PyNaCl is not installed"
-            gate_results["signing"] = "ERROR"
-        except SigningError as exc:
-            decision = "BLOCKED"
-            reason = f"Signing key error: {exc}"
+            reason = (
+                "Signing enabled but signing key is missing at "
+                f"{config.signing_key_path}"
+            )
             gate_results["signing"] = "ERROR"
         else:
-            gate_results["signing"] = "PASS"
+            try:
+                signing_key = load_signing_key(key_path)
+            except SigningUnavailableError:
+                decision = "BLOCKED"
+                reason = "Signing key exists but PyNaCl is not installed"
+                gate_results["signing"] = "ERROR"
+            except SigningError as exc:
+                decision = "BLOCKED"
+                reason = f"Signing key error: {exc}"
+                gate_results["signing"] = "ERROR"
+            else:
+                gate_results["signing"] = "PASS"
     else:
         if gate_results["signing"] != "ERROR":
             gate_results["signing"] = "SKIP"
@@ -194,8 +198,13 @@ def run_pipeline(
             signing_key=signing_key,
         )
         gate_results["evidence"] = "PASS"
-    except Exception:
+    except Exception as exc:
+        decision = "BLOCKED"
         gate_results["evidence"] = "ERROR"
+        original_reason = reason
+        reason = f"Evidence log failure: {exc}"
+        if original_reason:
+            reason = f"{reason} | prior decision: {original_reason}"
 
     return PipelineResult(
         decision=decision,

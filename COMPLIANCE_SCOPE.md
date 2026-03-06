@@ -21,19 +21,19 @@ Coverage categories:
 - Evidence-Only – Sworn records artifacts relevant to assessment but does not enforce policy.
 - Out of Scope – Sworn does not address this requirement.
 
-## Current CMMC Coverage (Sworn version 0.3.0)
+## Current CMMC Coverage (Sworn version 0.4.0)
 
 | Control | Category | Enforcement Surface | Evidence Artifact | Limitations |
 | --- | --- | --- | --- | --- |
-| AC.L2-3.1.1 | Enforced | Identity gate + cmmc AC kernel | Evidence log entry (`actor`, `tool`, `decision`) | Relies on git metadata accuracy |
-| AC.L2-3.1.2 | Enforced | Scope validation gate | Evidence log entry (`decision`, `reasons`, `scope`) | No org-level IAM enforcement |
+| AC.L2-3.1.1 | Detective | Identity gate + cmmc AC kernel | Evidence log entry (`actor`, `tool`, `decision`) | Does not block unresolved actor; relies on git metadata accuracy |
+| AC.L2-3.1.2 | Evidence-Only | Tool detection note in cmmc AC kernel | Evidence log entry (`tool`) + cmmc report summary | No scope-validation gate; no org-level IAM enforcement |
 | AU.L2-3.3.1 | Enforced | Evidence log + hash chain (`sworn verify`) | Evidence log entry + chain continuity proofs | Repo-local integrity only |
 | AU.L2-3.3.2 | Evidence-Only | Resolution trace assembly | Resolution trace in evidence entry | Does not validate review quality |
 | CM.L2-3.4.1 | Detective | Config presence gate checks | Gate result in evidence log | Does not validate config quality |
 | CM.L2-3.4.2 | Enforced | Security gate + cmmc CM kernel | Evidence log entry + blocking reason | Depends on correct config |
 | CM.L2-3.4.5 | Enforced | Allowlist/security pattern kernels | Evidence log entry + trace evidence | No runtime file-system sandbox |
 | SC.L2-3.13.1 | Detective | Boundary-pattern kernel evaluation | Evidence log entry + cmmc report summary | Pattern-based, not semantic |
-| SI.L2-3.14.1 | Evidence-Only | Governance execution trace | `sworn report` / `sworn report --json` trace output | Does not guarantee remediation |
+| SI.L2-3.14.1 | Evidence-Only | Governance execution trace | Evidence log `resolution_trace` + `sworn report --cmmc` summary | Does not guarantee remediation |
 
 ## Determination Statement Boundaries
 
@@ -91,7 +91,7 @@ Sworn verifies what exists; it does not create a PKI.
 
 ## Versioning
 
-This document reflects Sworn version 0.3.0 exactly.
+This document reflects Sworn version 0.4.0 exactly.
 Any deviation between tagged release behavior and this document is a defect.
 
 Changes to kernel behavior, signing semantics, or CI enforcement require updating this scope document.

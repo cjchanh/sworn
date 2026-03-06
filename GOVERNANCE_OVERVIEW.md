@@ -25,7 +25,7 @@ Guarantees:
 - Deterministic resolution ordering
 - No precedence override configuration
 - Fail-closed enforcement when gates are enabled
-- Structural gate + kernel outcomes are represented in resolution trace
+- Kernel outcomes are represented in `resolution_trace`; structural gate outcomes are recorded separately in `gates`
 
 Bound by:
 
