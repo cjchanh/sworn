@@ -11,6 +11,10 @@ from typing import Any
 from sworn.evidence.signing import compute_key_id
 
 
+class EvidenceLogError(Exception):
+    """Fail-closed evidence log error."""
+
+
 @dataclass
 class EvidenceEntry:
     """A single gate pipeline execution record."""
@@ -76,8 +80,18 @@ def read_last_hash(log_path: Path) -> str:
             # Hash the canonical form (signature/key_id stripped)
             entry = json.loads(last_line)
             return _hash_entry(canonical_json(entry))
-    except Exception:
-        return "genesis"
+    except json.JSONDecodeError as exc:
+        raise EvidenceLogError(
+            f"Failed to read previous evidence entry: invalid JSON in {log_path}"
+        ) from exc
+    except OSError as exc:
+        raise EvidenceLogError(
+            f"Failed to read previous evidence entry: {exc}"
+        ) from exc
+    except Exception as exc:
+        raise EvidenceLogError(
+            f"Failed to read previous evidence entry: {exc}"
+        ) from exc
 
 
 def append_entry(

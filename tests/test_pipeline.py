@@ -93,3 +93,39 @@ class TestPipeline:
         assert result.decision == "BLOCKED"
         assert result.gate_results.get("signing") == "ERROR"
         assert "Legacy signing key layout" in result.reason
+
+    def test_threat_signing_enabled_missing_key_blocks(self, tmp_repo: Path):
+        config = _config()
+        config.signing_enabled = True
+
+        result = run_pipeline(tmp_repo, ["src/main.py"], config)
+
+        assert result.decision == "BLOCKED"
+        assert result.gate_results.get("signing") == "ERROR"
+        assert "Signing enabled but signing key is missing" in result.reason
+
+    def test_threat_evidence_write_failure_blocks(self, tmp_repo: Path):
+        config = _config()
+        (tmp_repo / "readonly").mkdir()
+        (tmp_repo / "readonly" / "deep").write_text("blocker")
+        config.evidence_log_path = "readonly/deep/evidence.jsonl"
+
+        result = run_pipeline(tmp_repo, ["src/main.py"], config)
+
+        assert result.decision == "BLOCKED"
+        assert result.gate_results.get("evidence") == "ERROR"
+        assert "Evidence log failure" in result.reason
+        assert not (tmp_repo / "readonly" / "deep" / "evidence.jsonl").exists()
+
+    def test_threat_corrupt_existing_evidence_blocks(self, tmp_repo: Path):
+        config = _config()
+        log = tmp_repo / ".sworn" / "evidence.jsonl"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("{not-json}\n")
+
+        result = run_pipeline(tmp_repo, ["src/main.py"], config)
+
+        assert result.decision == "BLOCKED"
+        assert result.gate_results.get("evidence") == "ERROR"
+        assert "Evidence log failure" in result.reason
+        assert log.read_text() == "{not-json}\n"
