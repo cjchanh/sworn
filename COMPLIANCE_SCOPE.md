@@ -21,7 +21,7 @@ Coverage categories:
 - Evidence-Only – Sworn records artifacts relevant to assessment but does not enforce policy.
 - Out of Scope – Sworn does not address this requirement.
 
-## Current CMMC Coverage (Sworn version 0.3.0)
+## Current CMMC Coverage (Sworn version 0.4.0)
 
 | Control | Category | Enforcement Surface | Evidence Artifact | Limitations |
 | --- | --- | --- | --- | --- |
@@ -91,7 +91,7 @@ Sworn verifies what exists; it does not create a PKI.
 
 ## Versioning
 
-This document reflects Sworn version 0.3.0 exactly.
+This document reflects Sworn version 0.4.0 exactly.
 Any deviation between tagged release behavior and this document is a defect.
 
 Changes to kernel behavior, signing semantics, or CI enforcement require updating this scope document.

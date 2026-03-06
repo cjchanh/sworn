@@ -49,11 +49,6 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="CMMC compliance report",
     )
-    report_p.add_argument(
-        "--soc2",
-        action="store_true",
-        help="SOC 2 compliance report (requires sworn-soc2 pack)",
-    )
 
     # status
     status_p = sub.add_parser("status", help="Show sworn status")
@@ -84,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_check(args.repo_root)
     elif args.command == "report":
         fmt = "json" if args.json else "text"
-        return cmd_report(args.repo_root, fmt, args.since, args.cmmc, args.soc2)
+        return cmd_report(args.repo_root, fmt, args.since, args.cmmc)
     elif args.command == "status":
         return cmd_status(args.repo_root)
     elif args.command == "verify":
@@ -372,7 +367,6 @@ def cmd_report(
     output_format: str,
     since: str | None,
     cmmc: bool,
-    soc2: bool,
 ) -> int:
     """Generate an evidence report."""
     repo_root = _find_repo_root(repo_root_override)
@@ -383,11 +377,6 @@ def cmd_report(
         from sworn.evidence.cmmc_report import generate_cmmc_report
         report = generate_cmmc_report(log_path, config, output_format)
         print(report)
-        return 0
-
-    if soc2:
-        print("SOC 2 compliance reporting requires the sworn-soc2 pack.")
-        print("See: https://sworncode.dev/packs")
         return 0
 
     config = load_config(repo_root)

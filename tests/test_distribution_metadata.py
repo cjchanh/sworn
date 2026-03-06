@@ -39,3 +39,16 @@ def test_gitignore_covers_active_and_legacy_private_keys():
 
     assert ".sworn/keys/active.key" in content
     assert ".sworn/signing.key" in content
+
+
+def test_package_metadata_does_not_advertise_unshipped_soc2_surface():
+    content = (ROOT / "pyproject.toml").read_text()
+
+    assert "soc2" not in content
+
+
+def test_config_template_points_to_repo_backed_docs():
+    content = (ROOT / "src" / "sworn" / "config.py").read_text()
+
+    assert "docs/config.md" in content
+    assert "sworncode.dev/docs/config" not in content

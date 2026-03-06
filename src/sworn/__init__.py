@@ -1,3 +1,3 @@
 """Sworn — Deterministic, fail-closed AI code governance. Every commit is sworn."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

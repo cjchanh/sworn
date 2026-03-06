@@ -4,6 +4,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from sworn import __version__
 from sworn.cli import cmd_init, cmd_status, cmd_check, main
 
 
@@ -115,7 +116,17 @@ class TestCLI:
         with pytest.raises(SystemExit, match="0"):
             main(["--version"])
         captured = capsys.readouterr()
-        assert "0.3.0" in captured.out
+        assert __version__ in captured.out
+
+    def test_report_help_does_not_expose_unshipped_soc2_surface(self, capsys):
+        import pytest
+
+        with pytest.raises(SystemExit, match="0"):
+            main(["report", "--help"])
+        captured = capsys.readouterr()
+
+        assert "--cmmc" in captured.out
+        assert "--soc2" not in captured.out
 
     def test_no_command_shows_help(self, capsys):
         result = main([])

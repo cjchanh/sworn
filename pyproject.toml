@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sworncode"
-version = "0.3.0"
+version = "0.4.0"
 description = "Deterministic, fail-closed AI code governance. Every commit is sworn."
 readme = "README.md"
 license = "Apache-2.0"
@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [
     {name = "Centennial Defense Systems", email = "cj@sworncode.dev"},
 ]
-keywords = ["governance", "security", "compliance", "ai", "git", "cmmc", "soc2"]
+keywords = ["governance", "security", "compliance", "ai", "git", "cmmc"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

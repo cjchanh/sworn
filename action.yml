@@ -3,7 +3,7 @@ description: "Run sworn check against PR diff files"
 inputs:
   version:
     description: "sworncode version to install"
-    default: "0.3.0"
+    default: "0.4.0"
   python-version:
     description: "Python version"
     default: "3.12"
