@@ -3,7 +3,7 @@ description: "Run sworn check against PR diff files"
 inputs:
   version:
     description: "sworncode version to install"
-    default: "latest"
+    default: "0.3.0"
   python-version:
     description: "Python version"
     default: "3.12"
@@ -15,11 +15,7 @@ runs:
         python-version: ${{ inputs.python-version }}
     - shell: bash
       run: |
-        if [ "${{ inputs.version }}" = "latest" ]; then
-          pip install sworncode
-        else
-          pip install sworncode==${{ inputs.version }}
-        fi
+        pip install sworncode==${{ inputs.version }}
     - shell: bash
       env:
         SWORN_CI: "1"
