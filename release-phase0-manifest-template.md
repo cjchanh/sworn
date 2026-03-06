@@ -1,10 +1,14 @@
 # Sworn Phase-0 Evidence Manifest Template
 
+Manifest Type: Phase-0 pre-tag evidence
 Release Version:
-Signed Tag:
+Signed Tag: pending phase1
+Tag SHA: pending phase1
+PyPI Publish Ref: pending phase1
 Build Date (UTC):
 Maintainer:
-Release Commit:
+Phase-0 Start Commit:
+Phase-0 Branch:
 
 ## Artifact Inventory
 
@@ -19,7 +23,7 @@ Release Commit:
 - env-version.txt
 - env-uname.txt
 - pip-freeze.txt
-- release-sha.txt
+- phase0-start-sha.txt
 - working-tree-at-start.txt
 - build-timestamp-utc.txt
 - dist-shas.txt
@@ -36,6 +40,7 @@ Release Commit:
 - Bootstrap and full verification scripts passed
 - `python3 -m build --no-isolation` succeeded
 - Release evidence reviewed and committed before signed tag creation
+- Signed tag and publish identity must be recorded during phase1 in release notes or external operator log
 - Release evidence folder hash recorded
 
 ## Hashes

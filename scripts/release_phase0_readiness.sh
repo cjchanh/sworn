@@ -182,7 +182,7 @@ $RUNNER_BIN -m venv "$RUNNER_VENV"
 VENV_PY="$RUNNER_VENV/bin/python"
 VENV_SWORN="$RUNNER_VENV/bin/sworn"
 
-printf '%s\n' "$START_SHA" | tee "$RELEASE_DIR/release-sha.txt"
+printf '%s\n' "$START_SHA" | tee "$RELEASE_DIR/phase0-start-sha.txt"
 printf '%s\n' "$START_STATUS" | tee "$RELEASE_DIR/working-tree-at-start.txt"
 
 run_step "bootstrap env" "$VENV_PY -m pip install --upgrade pip setuptools wheel build twine" "$RELEASE_DIR/pip-bootstrap.log"
@@ -206,26 +206,17 @@ $VENV_PY -m build --no-isolation
 shasum -a 256 dist/* | sort | tee "$RELEASE_DIR/dist-shas.txt"
 run_step "twine check" "$VENV_PY -m twine check dist/*" "$RELEASE_DIR/twine-check.log"
 
-TMP_EVIDENCE_PACKAGE="$(mktemp /tmp/sworn-evidence-package.XXXXXX)"
-rm -f "$TMP_EVIDENCE_PACKAGE"
-TMP_EVIDENCE_PACKAGE="${TMP_EVIDENCE_PACKAGE}.tar.gz"
-
-tar -czf "$TMP_EVIDENCE_PACKAGE" \
-  -C "$ROOT_DIR" \
-  "release-evidence/$VERSION" \
-  pyproject.toml src/sworn/__init__.py SECURITY.md COMPLIANCE_SCOPE.md RELEASE_PROCESS.md GOVERNANCE_OVERVIEW.md README.md
-mv "$TMP_EVIDENCE_PACKAGE" "$RELEASE_DIR/evidence-package.tar.gz"
-shasum -a 256 "$RELEASE_DIR/evidence-package.tar.gz" | tee "$RELEASE_DIR/evidence-package.sha256"
-
 cat > "$RELEASE_DIR/MANIFEST.md" <<EOF
 Sworn $VERSION Phase-0 Release Evidence Manifest
 
-Release Tag:
-Tag SHA:
+Manifest Type: Phase-0 pre-tag evidence
+Release Tag: pending phase1
+Tag SHA: pending phase1
+PyPI Publish Ref: pending phase1
 Build Date (UTC): $(cat "$RELEASE_DIR/build-timestamp-utc.txt")
-Maintainer:
-Release Commit: $(git rev-parse HEAD)
-Release Branch: $(git rev-parse --abbrev-ref HEAD)
+Maintainer: pending phase1
+Phase-0 Start Commit: $(cat "$RELEASE_DIR/phase0-start-sha.txt")
+Phase-0 Branch: $(git rev-parse --abbrev-ref HEAD)
 
 Evidence Artifacts
 - install.log
@@ -239,7 +230,7 @@ Evidence Artifacts
 - env-version.txt
 - env-uname.txt
 - pip-freeze.txt
-- release-sha.txt
+- phase0-start-sha.txt
 - working-tree-at-start.txt
 - build-timestamp-utc.txt
 - dist-shas.txt
@@ -256,6 +247,18 @@ Assertions
 - CI fail-closed semantics unchanged
 - Compliance scope bound to code version in this release
 - Release evidence requires review and commit before any signed tag or publish step
+- Signed tag and publish identity must be recorded during phase1 outside the committed phase0 snapshot
 EOF
+
+TMP_EVIDENCE_PACKAGE="$(mktemp /tmp/sworn-evidence-package.XXXXXX)"
+rm -f "$TMP_EVIDENCE_PACKAGE"
+TMP_EVIDENCE_PACKAGE="${TMP_EVIDENCE_PACKAGE}.tar.gz"
+
+tar -czf "$TMP_EVIDENCE_PACKAGE" \
+  -C "$ROOT_DIR" \
+  "release-evidence/$VERSION" \
+  pyproject.toml src/sworn/__init__.py SECURITY.md COMPLIANCE_SCOPE.md RELEASE_PROCESS.md GOVERNANCE_OVERVIEW.md README.md
+mv "$TMP_EVIDENCE_PACKAGE" "$RELEASE_DIR/evidence-package.tar.gz"
+shasum -a 256 "$RELEASE_DIR/evidence-package.tar.gz" | tee "$RELEASE_DIR/evidence-package.sha256"
 
 echo "SOLID: phase0 complete | release evidence captured | $VERSION | commit release-evidence/$VERSION before tagging"

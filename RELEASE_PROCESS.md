@@ -140,12 +140,14 @@ Sworn release flow is intentionally split:
 - Run `./scripts/release_phase0_readiness.sh --version <version>` from a clean tree.
 - Review generated `release-evidence/<version>/`.
 - Commit release evidence and any release-contract updates before tag capture.
+- Treat the phase-0 manifest as a pre-tag snapshot. It records the starting commit and branch, not the future signed tag object.
 
 ### Phase 1 — Tag and publish
 
 - Start from the committed Phase-0 state with a clean working tree.
 - Create the signed tag for the exact commit that already contains release evidence.
-- Publish the package and attach or reference the release evidence bundle.
+- Publish the package and record the signed tag identity plus publish reference in release notes or an external operator log.
+- If a portable release bundle is required, rebuild or annotate it after phase1 so it reflects the final signed tag metadata.
 
 Combining evidence generation and tag capture in one dirty working tree is prohibited.
 
@@ -188,10 +190,10 @@ Capture at minimum:
   - `sworn --version | tee release-evidence/<tag>/sworn-cli.log`
   - `python -m sworn --help | tee release-evidence/<tag>/sworn-module-help.txt`
 - VCS context:
-  - `git rev-parse HEAD | tee release-evidence/<tag>/release-sha.txt`
+  - `git rev-parse HEAD | tee release-evidence/<tag>/phase0-start-sha.txt`
   - `git status --short | tee release-evidence/<tag>/working-tree-at-start.txt`
 - Release identity:
-  - Signed tag reference stored in release notes or external operator log after Phase 0 evidence is committed
+  - Signed tag reference, tag object SHA, and publish reference stored in release notes or external operator log after Phase 0 evidence is committed
 - Artifact integrity:
   - Build artifacts with `python -m build --no-isolation` and store `sha256` manifest at `release-evidence/<tag>/dist-shas.txt`
 
@@ -213,6 +215,9 @@ Evidence artifacts must be:
 - Associated with the exact signed release tag.
 - Recorded with integrity hashes.
 - Committed before tag capture when the in-repo retention model is used.
+
+For the in-repo model, the committed phase-0 bundle is the pre-tag evidence snapshot.
+The exact signed-tag identity is finalized in release notes or an external operator log during phase1.
 
 Modifying artifacts after tag publication invalidates the release record and requires
 corrective re-release.
