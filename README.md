@@ -2,8 +2,9 @@
 
 **Deterministic, fail-closed AI code governance. Every commit is sworn.**
 
-Sworn is a Python CLI that installs git pre-commit hooks, runs a configurable
-gate pipeline on every commit, and produces tamper-evident evidence logs.
+Sworn is a Python CLI that installs Git pre-commit hooks in the repository's
+effective hooks path, runs a configurable gate pipeline on local commit checks
+and CI diff checks, and produces tamper-evident evidence logs.
 
 Cross-tool enforcement for any AI coding tool that commits through git.
 
@@ -62,7 +63,7 @@ git commit -m "test"
 
 ## What It Does
 
-Sworn runs a 5-stage gate pipeline on every `git commit`:
+Sworn runs a 5-stage gate pipeline during local commit checks and CI diff checks:
 
 1. **Identity** — Detects the actor and AI tool from environment
 2. **Security** — Blocks commits touching sensitive paths (configurable)
