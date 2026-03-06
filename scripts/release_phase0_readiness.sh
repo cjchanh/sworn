@@ -160,6 +160,16 @@ if [[ ! -f "$HOME/.codex/scripts/run_full_verification.sh" ]]; then
   exit 1
 fi
 
+if [[ ! -f "$ROOT_DIR/scripts/release_static_guard.py" ]]; then
+  echo "FAIL: release static guard missing | phase0 | $ROOT_DIR/scripts/release_static_guard.py"
+  exit 1
+fi
+
+if [[ ! -f "$ROOT_DIR/scripts/release_smoke.py" ]]; then
+  echo "FAIL: release smoke harness missing | phase0 | $ROOT_DIR/scripts/release_smoke.py"
+  exit 1
+fi
+
 RELEASE_DIR="release-evidence/$VERSION"
 mkdir -p "$RELEASE_DIR"
 
@@ -195,6 +205,7 @@ run_step "tests" "$VENV_PY -m pytest tests -q --tb=short" "$RELEASE_DIR/pytest-f
 run_step "governance strict" "$VENV_PY ~/.codex/scripts/validate_governance.py --root . --strict" "$RELEASE_DIR/validate_governance.log"
 run_step "bootstrap check" "bash ~/.codex/scripts/bootstrap_codex_governance.sh --repo-root . --check-only" "$RELEASE_DIR/bootstrap_gov.log"
 run_step "full verification" "bash ~/.codex/scripts/run_full_verification.sh" "$RELEASE_DIR/full_verification.log"
+run_step "release static guard" "$VENV_PY scripts/release_static_guard.py" "$RELEASE_DIR/release-static-guard.log"
 
 run_step "python version" "$VENV_PY --version" "$RELEASE_DIR/env-version.txt"
 run_step "pip freeze" "$VENV_PY -m pip freeze | sort" "$RELEASE_DIR/pip-freeze.txt"
@@ -205,6 +216,7 @@ rm -rf "$ROOT_DIR/dist"
 $VENV_PY -m build --no-isolation
 shasum -a 256 dist/* | sort | tee "$RELEASE_DIR/dist-shas.txt"
 run_step "twine check" "$VENV_PY -m twine check dist/*" "$RELEASE_DIR/twine-check.log"
+run_step "release smoke" "$VENV_PY scripts/release_smoke.py --version $VERSION" "$RELEASE_DIR/release-smoke.log"
 
 cat > "$RELEASE_DIR/MANIFEST.md" <<EOF
 Sworn $VERSION Phase-0 Release Evidence Manifest
@@ -224,6 +236,7 @@ Evidence Artifacts
 - validate_governance.log
 - bootstrap_gov.log
 - full_verification.log
+- release-static-guard.log
 - pip-bootstrap.log
 - sworn-cli.log
 - sworn-module-help.txt
@@ -235,6 +248,7 @@ Evidence Artifacts
 - build-timestamp-utc.txt
 - dist-shas.txt
 - twine-check.log
+- release-smoke.log
 - evidence-package.tar.gz
 - evidence-package.sha256
 
@@ -243,9 +257,11 @@ Assertions
 - Signing available under [dev,signing] release proof and CLI invocation succeeded
 - Governance checks passed via validate_governance.py --root . --strict
 - Bootstrap and full verification checks passed
+- Release static guard passed with version-aligned metadata and no placeholder surfaces
 - Canonicalization and hash-chain behavior unchanged from tagged baseline
 - CI fail-closed semantics unchanged
 - Compliance scope bound to code version in this release
+- Built wheel passed smoke install and adversarial behavior scenarios
 - Release evidence requires review and commit before any signed tag or publish step
 - Signed tag and publish identity must be recorded during phase1 outside the committed phase0 snapshot
 EOF
