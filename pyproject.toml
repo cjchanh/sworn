@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [
     {name = "Centennial Defense Systems", email = "cj@sworncode.dev"},
 ]
-keywords = ["governance", "security", "compliance", "ai", "git", "cmmc"]
+keywords = ["governance", "security", "compliance", "ai", "git", "cmmc", "code-review", "pre-commit"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
