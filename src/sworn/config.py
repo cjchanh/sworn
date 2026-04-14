@@ -26,7 +26,7 @@ DEFAULT_SECURITY_PATTERNS: list[str] = [
 
 CONFIG_TEMPLATE = """\
 # Sworn configuration
-# Docs: https://github.com/CentennialDefenseSystemsInc/sworn/blob/main/docs/config.md
+# Docs: https://github.com/cjchanh/sworn/blob/main/docs/config.md
 
 [sworn]
 version = "0.4"
