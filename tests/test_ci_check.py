@@ -116,7 +116,7 @@ class TestCICheck:
 
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-        with patch.dict(os.environ, {"SWORN_CI": "0"}, clear=False), \
+        with patch.dict(os.environ, {"SWORN_CI": "0"}, clear=True), \
             patch("sworn.cli.subprocess.run", side_effect=fake_run):
             result = cmd_ci_check(tmp_repo, None)
 
