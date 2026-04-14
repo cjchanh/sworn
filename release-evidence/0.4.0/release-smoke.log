@@ -1,9 +1,0 @@
-SOLID: release smoke | installed built wheel version 0.4.0
-SOLID: release smoke | happy path commit gate passed
-SOLID: release smoke | sensitive path block held
-SOLID: release smoke | missing signing key blocked in signed mode
-SOLID: release smoke | corrupt evidence log blocked extension
-SOLID: release smoke | core.hooksPath installation honored
-SOLID: release smoke | git worktree hook installation honored
-SOLID: release smoke | PASS: version 0.4.0
-PASS: release smoke | version 0.4.0

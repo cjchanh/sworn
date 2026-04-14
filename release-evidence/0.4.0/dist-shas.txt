@@ -1,2 +1,0 @@
-0172f9d4db2b06ab338f7a54e5c11434e77ac7123ad30439445d9dd489b24f78  dist/sworncode-0.4.0.tar.gz
-0f5357f112b33cd585b516b309d9abc136e7a105f7e7dc43dd1ec572cba33fa7  dist/sworncode-0.4.0-py3-none-any.whl
