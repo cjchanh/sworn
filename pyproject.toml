@@ -35,8 +35,8 @@ signing = ["pynacl>=1.5.0"]
 
 [project.urls]
 Homepage = "https://sworncode.dev"
-Repository = "https://github.com/CentennialDefenseSystemsInc/sworn"
-Issues = "https://github.com/CentennialDefenseSystemsInc/sworn/issues"
+Repository = "https://github.com/cjchanh/sworn"
+Issues = "https://github.com/cjchanh/sworn/issues"
 
 [project.scripts]
 sworn = "sworn.cli:main"
