@@ -16,3 +16,8 @@ venv/
 htmlcov/
 .sworn/keys/active.key
 .sworn/signing.key
+
+# auto: spec 151 — portfolio trivial gitignore sweep
+release/
+release/evidence/autopilot_*/
+CRAFT_GATE_RESULT.json
