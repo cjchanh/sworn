@@ -16,3 +16,8 @@ venv/
 htmlcov/
 .sworn/keys/active.key
 .sworn/signing.key
+.venv-release/
+# Release evidence is generated locally and retained out-of-repo (signed Release
+# asset or external audit repo). It is NOT committed: governance-gate logs can
+# contain absolute local paths and toolchain topology. See RELEASE_PROCESS.md.
+release-evidence/

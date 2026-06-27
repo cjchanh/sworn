@@ -117,10 +117,11 @@ Definition guidance:
    - Confirm CLI and module entrypoint are available:
      - `sworn --version`
      - `python -m sworn --help`
-3. Governance checks
-   - `python3 ~/.codex/scripts/validate_governance.py --strict`
-   - `bash ~/.codex/scripts/bootstrap_codex_governance.sh --repo-root . --check-only`
-   - `bash ~/.codex/scripts/run_full_verification.sh`
+3. Governance checks (optional external gate, configured via environment so the
+   maintainer toolchain identity stays out of this repo; skipped if unset)
+   - `"$SWORN_GOVERNANCE_VALIDATE_CMD"`
+   - `"$SWORN_GOVERNANCE_BOOTSTRAP_CMD"`
+   - `"$SWORN_GOVERNANCE_VERIFY_CMD"`
 4. Test + verification
    - `PYTHONPATH=src python3 -m pytest tests -q --tb=short`
    - All tests relevant to changed surfaces pass (Rule-2 and CI paths inclusive).
@@ -138,8 +139,10 @@ Sworn release flow is intentionally split:
 ### Phase 0 — Evidence generation
 
 - Run `./scripts/release_phase0_readiness.sh --version <version>` from a clean tree.
-- Review generated `release-evidence/<version>/`.
-- Commit release evidence and any release-contract updates before tag capture.
+- Review generated `release-evidence/<version>/` (local, gitignored).
+- Retain release evidence out-of-repo before tag capture: attach it as a signed GitHub
+  Release asset or store it in an external audit repository with a SHA-256 manifest.
+  Commit any release-contract doc updates as usual.
 - Treat the phase-0 manifest as a pre-tag snapshot. It records the starting commit and branch, not the future signed tag object.
 
 ### Phase 1 — Tag and publish
@@ -178,10 +181,11 @@ Capture at minimum:
 
 - Pytest output:
   - `PYTHONPATH=src python3 -m pytest tests -q --tb=short | tee release-evidence/<tag>/pytest-full.log`
-- Governance outputs:
-  - `python3 ~/.codex/scripts/validate_governance.py --root . --strict | tee release-evidence/<tag>/validate_governance.log`
-  - `bash ~/.codex/scripts/bootstrap_codex_governance.sh --repo-root . --check-only | tee release-evidence/<tag>/bootstrap_gov.log`
-  - `bash ~/.codex/scripts/run_full_verification.sh | tee release-evidence/<tag>/full_verification.log`
+- Governance outputs (external gate, if configured; `release-evidence/` is gitignored
+  and retained out-of-repo because gate logs may contain absolute local paths):
+  - `"$SWORN_GOVERNANCE_VALIDATE_CMD" | tee release-evidence/<tag>/validate_governance.log`
+  - `"$SWORN_GOVERNANCE_BOOTSTRAP_CMD" | tee release-evidence/<tag>/bootstrap_gov.log`
+  - `"$SWORN_GOVERNANCE_VERIFY_CMD" | tee release-evidence/<tag>/full_verification.log`
 - Environment fingerprint:
   - `python --version | tee release-evidence/<tag>/env-version.txt`
   - `uname -a | tee release-evidence/<tag>/env-uname.txt`
@@ -204,9 +208,9 @@ Absence of these artifacts is an incomplete release and blocks final sign-off.
 
 Release artifacts must be immutable after tag publication.
 
-Acceptable retention models:
+Acceptable retention models (`release-evidence/` is gitignored and is NOT committed
+in-tree, because governance-gate logs can contain environment-specific absolute paths):
 
-- Committed prior to tagging in the repository under `release-evidence/<tag>/`.
 - Attached to a signed GitHub Release asset bundle.
 - Stored in an external audit repository with an accompanying SHA-256 manifest.
 
@@ -215,11 +219,11 @@ Evidence artifacts must be:
 - Stored in a non-ephemeral location.
 - Associated with the exact signed release tag.
 - Recorded with integrity hashes.
-- Committed before tag capture when the in-repo retention model is used.
+- Retained out-of-repo (Release asset or external audit repo) before tag capture.
 
-For the in-repo model, the committed phase-0 bundle is the pre-tag evidence snapshot.
+The retained phase-0 bundle is the pre-tag evidence snapshot.
 The exact signed-tag identity is finalized in release notes or an external operator log during phase1.
-Do not backfill or mutate the committed phase-0 evidence folder after tag publication.
+Do not backfill or mutate the retained phase-0 evidence bundle after tag publication.
 
 Modifying artifacts after tag publication invalidates the release record and requires
 corrective re-release.

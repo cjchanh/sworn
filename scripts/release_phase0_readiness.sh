@@ -24,7 +24,7 @@ Usage:
 Required:
   - Clean git working tree
   - Supported Python 3.10-3.13 available for release proof
-  - Access to ~/.codex/scripts/validate_governance.py
+  - Optional external governance gate via SWORN_GOVERNANCE_*_CMD env vars (see RELEASE_PROCESS.md); skipped if unset
 
 Options:
   --version VERSION  Override release version (defaults to pyproject.toml version)
@@ -145,20 +145,15 @@ fi
 START_SHA="$(git rev-parse HEAD)"
 START_STATUS="$(git status --short)"
 
-if [[ ! -f "$HOME/.codex/scripts/validate_governance.py" ]]; then
-  echo "FAIL: governance validation script missing | phase0 | $HOME/.codex/scripts/validate_governance.py"
-  exit 1
-fi
-
-if [[ ! -f "$HOME/.codex/scripts/bootstrap_codex_governance.sh" ]]; then
-  echo "FAIL: bootstrap script missing | phase0 | $HOME/.codex/scripts/bootstrap_codex_governance.sh"
-  exit 1
-fi
-
-if [[ ! -f "$HOME/.codex/scripts/run_full_verification.sh" ]]; then
-  echo "FAIL: full verification script missing | phase0 | $HOME/.codex/scripts/run_full_verification.sh"
-  exit 1
-fi
+# External governance gate (optional, pluggable). Configured via environment so the
+# maintainer's private toolchain identity stays out of this public repository. When a
+# command is unset, its step is skipped (recorded, not failed), keeping this script
+# portable for contributors who do not have the external gate. Maintainer sets these
+# in the local shell, e.g.:
+#   export SWORN_GOVERNANCE_VALIDATE_CMD="python3 <gate>/validate_governance.py --root . --strict"
+GOV_VALIDATE_CMD="${SWORN_GOVERNANCE_VALIDATE_CMD:-}"
+GOV_BOOTSTRAP_CMD="${SWORN_GOVERNANCE_BOOTSTRAP_CMD:-}"
+GOV_VERIFY_CMD="${SWORN_GOVERNANCE_VERIFY_CMD:-}"
 
 if [[ ! -f "$ROOT_DIR/scripts/release_static_guard.py" ]]; then
   echo "FAIL: release static guard missing | phase0 | $ROOT_DIR/scripts/release_static_guard.py"
@@ -186,6 +181,19 @@ run_step() {
   } | tee "$out"
 }
 
+# Optional external governance step: run when a command is configured, otherwise
+# record a SKIP into the evidence log instead of hard-failing.
+run_gov_step() {
+  local name="$1"
+  local cmd="$2"
+  local out="$3"
+  if [[ -n "$cmd" ]]; then
+    run_step "$name" "$cmd" "$out"
+  else
+    echo "SKIP: $name | phase0 | external governance command not configured (set SWORN_GOVERNANCE_*_CMD)" | tee "$out"
+  fi
+}
+
 RUNNER_VENV="$ROOT_DIR/.venv-release"
 rm -rf "$RUNNER_VENV"
 $RUNNER_BIN -m venv "$RUNNER_VENV"
@@ -202,9 +210,9 @@ run_step "module help" "$VENV_PY -m sworn --help" "$RELEASE_DIR/sworn-module-hel
 
 run_step "tests" "$VENV_PY -m pytest tests -q --tb=short" "$RELEASE_DIR/pytest-full.log"
 
-run_step "governance strict" "$VENV_PY ~/.codex/scripts/validate_governance.py --root . --strict" "$RELEASE_DIR/validate_governance.log"
-run_step "bootstrap check" "bash ~/.codex/scripts/bootstrap_codex_governance.sh --repo-root . --check-only" "$RELEASE_DIR/bootstrap_gov.log"
-run_step "full verification" "bash ~/.codex/scripts/run_full_verification.sh" "$RELEASE_DIR/full_verification.log"
+run_gov_step "governance strict" "$GOV_VALIDATE_CMD" "$RELEASE_DIR/validate_governance.log"
+run_gov_step "bootstrap check" "$GOV_BOOTSTRAP_CMD" "$RELEASE_DIR/bootstrap_gov.log"
+run_gov_step "full verification" "$GOV_VERIFY_CMD" "$RELEASE_DIR/full_verification.log"
 run_step "release static guard" "$VENV_PY scripts/release_static_guard.py" "$RELEASE_DIR/release-static-guard.log"
 
 run_step "python version" "$VENV_PY --version" "$RELEASE_DIR/env-version.txt"
