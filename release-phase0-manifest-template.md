@@ -36,10 +36,10 @@ Phase-0 Branch:
 - Working tree clean before release run
 - `python3 -m pip install .[dev,signing]` passed in clean venv
 - `python3 -m pytest tests -q --tb=short` passed
-- External governance gate (`SWORN_GOVERNANCE_VALIDATE_CMD`) passed, or recorded as skipped if unset
-- External bootstrap and full verification gates passed, or recorded as skipped if unset
+- `python3 ~/.codex/scripts/validate_governance.py --root . --strict` passed
+- Bootstrap and full verification scripts passed
 - `python3 -m build --no-isolation` succeeded
-- Release evidence reviewed and retained out-of-repo before signed tag creation
+- Release evidence reviewed and committed before signed tag creation
 - Signed tag and publish identity must be recorded during phase1 in release notes or external operator log
 - Release evidence folder hash recorded
 

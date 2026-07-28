@@ -11,9 +11,9 @@ Deterministic, fail-closed AI code governance for git-based engineering workflow
 
 ## Allowed Commands
 - `PYTHONPATH=src python3 -m pytest tests -q --tb=short` — local source verification
-- `"$SWORN_GOVERNANCE_VALIDATE_CMD"` — external repo governance gate, if configured (optional)
-- `"$SWORN_GOVERNANCE_BOOTSTRAP_CMD"` — external bootstrap gate, if configured (optional)
-- `"$SWORN_GOVERNANCE_VERIFY_CMD"` — external full verification chain, if configured (optional)
+- `python3 ~/.codex/scripts/validate_governance.py --root . --json --strict` — repo governance gate
+- `bash ~/.codex/scripts/bootstrap_codex_governance.sh --repo-root . --check-only` — bootstrap gate
+- `bash ~/.codex/scripts/run_full_verification.sh` — full verification chain
 - `python3 -m build --sdist --wheel --no-isolation --outdir /tmp/sworn-buildcheck` — packaging check
 - `./scripts/release_phase0_readiness.sh --version <version>` — release evidence generation
 
