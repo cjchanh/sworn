@@ -43,6 +43,20 @@ class TestPipeline:
         assert result.decision == "BLOCKED"
         assert "allowlist" in result.reason.lower() or result.gate_results.get("allowlist") == "BLOCKED"
 
+    def test_all_kernels_disabled_blocks(self, tmp_repo: Path):
+        # Regression: zero kernels evaluated must never be recorded as PASS
+        # in the evidence log — an empty evaluation is a refusal.
+        config = _config()
+        config.kernels_enabled = {
+            "security": False,
+            "allowlist": False,
+            "audit": False,
+        }
+        result = run_pipeline(tmp_repo, ["src/main.py"], config)
+        assert result.decision == "BLOCKED"
+        assert result.gate_results["kernels"] == "BLOCKED"
+        assert "No kernels evaluated" in result.reason
+
     def test_kernel_block(self, tmp_repo: Path):
         config = _config()
         result = run_pipeline(tmp_repo, ["auth/login.py"], config)

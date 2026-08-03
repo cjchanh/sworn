@@ -32,16 +32,21 @@ def resolve(
 ) -> ResolutionTrace:
     """Resolve kernel dispositions into a single decision.
 
-    Fail-closed by construction: any unresolved block -> BLOCKED.
+    Fail-closed by construction: any unresolved block -> BLOCKED, and an
+    empty evaluation is a refusal, not a pass — zero kernels evaluated
+    certifies nothing, so it must never be recorded as PASS.
     """
     if not dispositions:
         return ResolutionTrace(
             dispositions=[],
             kernel_order=[],
             applied_overrides=[],
-            final_decision="PASS",
-            final_reason="No kernels evaluated",
-            blocked_by=[],
+            final_decision="BLOCKED",
+            final_reason=(
+                "No kernels evaluated — fail-closed refusal: "
+                "an empty evaluation certifies nothing"
+            ),
+            blocked_by=["no-kernels-evaluated"],
         )
 
     blocked_set = {

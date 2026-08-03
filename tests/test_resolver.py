@@ -42,10 +42,12 @@ class TestResolver:
         assert result.final_decision == "BLOCKED"
         assert result.blocked_by == ["b"]
 
-    def test_empty_dispositions_pass(self):
+    def test_empty_dispositions_blocked(self):
+        # Zero kernels evaluated is a refusal, not a pass (fail-closed).
         result = resolve([])
-        assert result.final_decision == "PASS"
-        assert result.final_reason == "No kernels evaluated"
+        assert result.final_decision == "BLOCKED"
+        assert result.blocked_by == ["no-kernels-evaluated"]
+        assert "No kernels evaluated" in result.final_reason
 
     def test_resolution_trace_populated(self):
         result = resolve([_disp("a"), _disp("b", "BLOCKED", evidence=["err"])])
