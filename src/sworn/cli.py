@@ -107,7 +107,7 @@ def _find_repo_root(override: Path | None = None) -> Path:
             return Path(result.stdout.strip())
     except Exception:
         pass
-    return Path.cwd()
+    raise RuntimeError("not a git repository")
 
 
 def _run_git(

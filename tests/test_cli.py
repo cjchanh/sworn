@@ -5,7 +5,14 @@ import subprocess
 from pathlib import Path
 
 from sworn import __version__
-from sworn.cli import _get_staged_files, cmd_init, cmd_status, cmd_check, main
+from sworn.cli import (
+    _find_repo_root,
+    _get_staged_files,
+    cmd_init,
+    cmd_status,
+    cmd_check,
+    main,
+)
 
 
 class TestCLI:
@@ -104,6 +111,20 @@ class TestCLI:
 
         with pytest.raises(RuntimeError, match="not a git repository"):
             _get_staged_files(tmp_repo)
+
+    def test_find_repo_root_does_not_fall_back_to_cwd(self, tmp_path, monkeypatch):
+        import pytest
+
+        def failed_probe(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args[0] if args else ["git"], 128, "", "fatal: not a git repository"
+            )
+
+        monkeypatch.setattr(subprocess, "run", failed_probe)
+        monkeypatch.chdir(tmp_path)
+
+        with pytest.raises(RuntimeError, match="not a git repository"):
+            _find_repo_root()
 
     def test_check_blocks_when_git_probe_fails(
         self, tmp_repo: Path, monkeypatch, capsys
