@@ -150,10 +150,23 @@ def read_entries(log_path: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def chain_status(valid: bool, message: str) -> str:
+    """Map verify_chain output to EMPTY / VALID / BROKEN.
+
+    EMPTY is not a verified attest. VALID means a non-empty chain passed
+    integrity (and signature) checks. BROKEN means a discontinuity or
+    signature failure.
+    """
+    if message.startswith("EMPTY"):
+        return "EMPTY"
+    return "VALID" if valid else "BROKEN"
+
+
 def verify_chain(
     log_path: Path,
     verify_key: Any = None,
     verify_key_dir: Path | None = None,
+    require_signatures: bool = False,
 ) -> tuple[bool, str]:
     """Verify the hash chain integrity and optional signatures.
 
@@ -161,9 +174,15 @@ def verify_chain(
     If verify_key is provided, verifies all signatures against that key.
     If verify_key_dir is provided, signatures are verified using pub keys
     resolved from each entry's key_id.
+    If require_signatures is True, unsigned entries are a violation even
+    when no signed entry has been seen yet (signed-mode fail-closed).
+
+    A missing or empty log is not treated as a verified chain. The
+    message is prefixed with ``EMPTY`` so callers can distinguish that
+    from VALID.
     """
     if not log_path.exists():
-        return True, "No evidence log found"
+        return True, "EMPTY: no evidence log found"
 
     prev_hash = "genesis"
     line_num = 0
@@ -236,9 +255,13 @@ def verify_chain(
 
             else:
                 unsigned_count += 1
-                if (verify_key is not None or verify_with_key_dir) and line_num > 0:
-                    if signed_count > 0:
-                        return False, f"Line {line_num}: missing signature in signed log"
+                if require_signatures or (
+                    (verify_key is not None or verify_with_key_dir) and signed_count > 0
+                ):
+                    return False, f"Line {line_num}: missing signature in signed log"
+
+    if line_num == 0:
+        return True, "EMPTY: no evidence entries"
 
     msg = f"Chain valid: {line_num} entries"
     if signed_count > 0:

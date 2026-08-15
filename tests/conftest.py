@@ -11,31 +11,37 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from sworn.config import SwornConfig, _compile_patterns, DEFAULT_SECURITY_PATTERNS
+from tests.gitutil import git_init
 
 
 @pytest.fixture
 def tmp_repo(tmp_path: Path) -> Path:
-    """Create a temporary git repo with initial commit."""
+    """Create a temporary git repo with initial commit.
+
+    The repo lives in a subdirectory so callers can also create a sibling
+    directory that is not this git work tree.
+    """
+    repo = tmp_path / "repo"
+    git_init(repo)
     subprocess.run(
-        ["git", "init"], cwd=tmp_path, capture_output=True, check=True
+        ["git", "config", "user.name", "test"], cwd=repo, capture_output=True
     )
     subprocess.run(
-        ["git", "config", "user.name", "test"], cwd=tmp_path, capture_output=True
-    )
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"], cwd=tmp_path, capture_output=True
+        ["git", "config", "user.email", "test@test.com"], cwd=repo, capture_output=True
     )
     subprocess.run(
         ["git", "commit", "--allow-empty", "-m", "init"],
-        cwd=tmp_path,
+        cwd=repo,
         capture_output=True,
         check=True,
     )
-    return tmp_path
+    return repo
 
 
 @pytest.fixture

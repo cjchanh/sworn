@@ -100,6 +100,16 @@ class TestCMMCReport:
         report = generate_cmmc_report(log_path, _config(), "json")
         data = json.loads(report)
         assert data["evidence_chain"]["valid"] is True
+        assert data["evidence_chain"]["status"] == "VALID"
+
+    def test_empty_log_chain_is_empty_not_valid(self, tmp_path: Path):
+        log_path = tmp_path / ".sworn" / "evidence.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("")
+        report = generate_cmmc_report(log_path, _config(), "json")
+        data = json.loads(report)
+        assert data["evidence_chain"]["status"] == "EMPTY"
+        assert data["evidence_chain"]["valid"] is False
 
     def test_per_control_evidence_count(self, tmp_path: Path):
         log_path = tmp_path / ".sworn" / "evidence.jsonl"

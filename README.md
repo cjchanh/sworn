@@ -70,16 +70,25 @@ git commit -m "test"
 
 ## What It Does
 
-Sworn runs a 5-stage gate pipeline during local commit checks and CI diff checks:
+Sworn runs a deterministic gate pipeline during local commit checks and CI
+diff checks.
 
-1. **Identity** — Detects the actor and AI tool from environment
+1. **Identity** — Records actor (gated repo `git config user.name`) and AI
+   tool from environment. This stage **never blocks**. Unresolved actor is
+   blocked only when the opt-in CMMC AC kernel is enabled.
 2. **Security** — Blocks commits touching sensitive paths (configurable)
-3. **Allowlist** — Enforces file access control (opt-in)
-4. **Kernels** — Runs constraint kernels (built-in + custom)
-5. **Evidence** — Logs everything to `.sworn/evidence.jsonl`
+3. **Allowlist** — Enforces file access control when configured (still
+   evaluated after a prior block so evidence is complete)
+4. **Signing** — Fail-closed when signing is enabled (missing/legacy key,
+   missing PyNaCl, or sign failure blocks)
+5. **Kernels** — Runs constraint kernels (built-in + custom) even when a
+   structural gate already blocked
+6. **Evidence** — Appends a JSONL entry to `.sworn/evidence.jsonl`. A log
+   write failure blocks.
 
-Every stage is deterministic. No AI in the governance loop. No network calls.
-No probabilistic analysis. A gate either passes or blocks.
+Every stage is deterministic. No AI in the governance loop. No network
+calls. No probabilistic analysis. Identity records and never blocks; other
+enabled stages either pass or block.
 
 For team-wide fail-closed posture, treat local hooks as developer fast-fail and make the CI gate a required status check. See `docs/DEPLOYMENT.md`.
 
@@ -92,9 +101,11 @@ sworn report            # Show evidence summary
 sworn report --json     # Machine-readable output
 sworn report --cmmc     # CMMC evidence-support report
 sworn status            # Show initialization and config state
-sworn verify            # Verify evidence chain integrity
+sworn verify            # Verify evidence chain (EMPTY/VALID/BROKEN)
 python -m sworn          # Run command through module entrypoint
 sworn --version         # Print version
+sworn keygen            # Generate Ed25519 signing keypair (needs PyNaCl)
+sworn ci-check          # Run pipeline on a PR/CI diff
 ```
 
 ## Configuration
@@ -108,6 +119,7 @@ patterns = [
     '(^|/)(crypto|auth|gates|licensing|keys)/',
     '(^|/)secrets?/',
     '\.env$',
+    '(^|/)private/',
 ]
 
 [allowlist]
@@ -122,6 +134,18 @@ audit = true
 
 # Custom kernels
 custom_dir = ".sworn/kernels"
+
+# CMMC kernel pack is off by default. Enable explicitly:
+# cmmc = true
+
+[evidence]
+log_path = ".sworn/evidence.jsonl"
+hash_chain = true
+
+# [signing]
+# enabled = false
+# key_path = ".sworn/keys/active.key"
+# pub_path = ".sworn/keys/"
 ```
 
 ## Custom Kernels
@@ -159,6 +183,10 @@ sworn report
 sworn verify
 # Chain: VALID
 #   Chain valid: 47 entries
+# Empty log (after init, before any gated commit):
+# Chain: EMPTY
+#   EMPTY: no evidence log found
+# Exit code is 1 — nothing was attested.
 ```
 
 ## Security Posture & Rule-2 Scope

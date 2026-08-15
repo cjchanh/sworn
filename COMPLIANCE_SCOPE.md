@@ -25,9 +25,9 @@ Coverage categories:
 
 | Control | Category | Enforcement Surface | Evidence Artifact | Limitations |
 | --- | --- | --- | --- | --- |
-| AC.L2-3.1.1 | Enforced | Identity gate + cmmc AC kernel — commit is BLOCKED when the actor is unresolved (empty or `unknown`) | Evidence log entry (`actor`, `tool`, `decision`) + block reason and required next action | Requires the cmmc kernel pack to be enabled; establishes that an actor is resolved, not that it is authentic — relies on git metadata accuracy; no org-level IAM enforcement |
+| AC.L2-3.1.1 | Enforced (opt-in) | cmmc AC kernel — commit is BLOCKED when the actor is unresolved (empty or `unknown`). The identity gate records actor/tool and never blocks. | Evidence log entry (`actor`, `tool`, `decision`) + block reason and required next action | Requires `kernels.cmmc = true` (off by default). Records the git-configured actor for the gated repo; that is not authentication. No org-level IAM. |
 | AC.L2-3.1.2 | Evidence-Only | Tool detection note in cmmc AC kernel | Evidence log entry (`tool`) + cmmc report summary | No scope-validation gate; no org-level IAM enforcement |
-| AU.L2-3.3.1 | Enforced | Evidence log + hash chain (`sworn verify`) | Evidence log entry + chain continuity proofs | Repo-local integrity only |
+| AU.L2-3.3.1 | Enforced | Evidence log + hash chain (`sworn verify`) | Evidence log entry + chain continuity proofs | Repo-local integrity only. `sworn verify` on a missing/empty log reports `EMPTY` and exits 1 — that is not a verified attest. |
 | AU.L2-3.3.2 | Evidence-Only | Resolution trace assembly | Resolution trace in evidence entry | Does not validate review quality |
 | CM.L2-3.4.1 | Detective | Config presence gate checks | Gate result in evidence log | Does not validate config quality |
 | CM.L2-3.4.2 | Enforced | Security gate + cmmc CM kernel | Evidence log entry + blocking reason | Depends on correct config |

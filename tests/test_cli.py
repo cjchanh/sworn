@@ -11,8 +11,10 @@ from sworn.cli import (
     cmd_init,
     cmd_status,
     cmd_check,
+    cmd_verify,
     main,
 )
+from tests.gitutil import git_hooks_path, git_init
 
 
 class TestCLI:
@@ -23,7 +25,7 @@ class TestCLI:
 
     def test_init_installs_hook(self, tmp_repo: Path):
         cmd_init(tmp_repo)
-        hook = tmp_repo / ".git" / "hooks" / "pre-commit"
+        hook = git_hooks_path(tmp_repo) / "pre-commit"
         assert hook.exists()
         assert "sworn check" in hook.read_text()
 
@@ -41,7 +43,17 @@ class TestCLI:
         hook = tmp_repo / ".githooks" / "pre-commit"
         assert hook.exists()
         assert "sworn check" in hook.read_text()
-        default_hook = tmp_repo / ".git" / "hooks" / "pre-commit"
+        git_dir = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=tmp_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        native_hooks = Path(git_dir)
+        if not native_hooks.is_absolute():
+            native_hooks = tmp_repo / native_hooks
+        default_hook = native_hooks / "hooks" / "pre-commit"
         assert not default_hook.exists() or "sworn check" not in default_hook.read_text()
 
     def test_init_idempotent(self, tmp_repo: Path):
@@ -54,29 +66,18 @@ class TestCLI:
     def test_init_supports_git_worktree(self, tmp_path: Path):
         main_repo = tmp_path / "main"
         worktree = tmp_path / "wt"
-        subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
-        subprocess.run(["git", "clone", tmp_path.as_posix(), main_repo.as_posix()], capture_output=True, check=True)
+        git_init(main_repo)
         subprocess.run(["git", "config", "user.name", "test"], cwd=main_repo, capture_output=True, check=True)
         subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=main_repo, capture_output=True, check=True)
         (main_repo / "seed.txt").write_text("seed")
         subprocess.run(["git", "add", "seed.txt"], cwd=main_repo, capture_output=True, check=True)
         subprocess.run(["git", "commit", "-m", "seed"], cwd=main_repo, capture_output=True, check=True)
-        subprocess.run(["git", "worktree", "add", worktree], cwd=main_repo, capture_output=True, check=True)
+        subprocess.run(["git", "worktree", "add", str(worktree)], cwd=main_repo, capture_output=True, check=True)
 
         result = cmd_init(worktree)
 
         assert result == 0
-        hooks_dir = subprocess.run(
-            ["git", "rev-parse", "--git-path", "hooks"],
-            cwd=worktree,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-        hook = Path(hooks_dir)
-        if not hook.is_absolute():
-            hook = worktree / hook
-        hook = hook / "pre-commit"
+        hook = git_hooks_path(worktree) / "pre-commit"
         assert hook.exists()
         assert "sworn check" in hook.read_text()
 
@@ -199,3 +200,28 @@ class TestCLI:
     def test_no_command_shows_help(self, capsys):
         result = main([])
         assert result == 0
+
+    def test_verify_empty_after_init_is_not_valid(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        result = cmd_verify(tmp_repo)
+        captured = capsys.readouterr()
+        assert result == 1
+        assert "Chain: EMPTY" in captured.out
+        assert "VALID" not in captured.out
+
+    def test_verify_signed_mode_unsigned_log_fails(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        config_path = tmp_repo / ".sworn" / "config.toml"
+        config_path.write_text(
+            config_path.read_text() + "\n[signing]\nenabled = true\n"
+        )
+        (tmp_repo / ".sworn" / "evidence.jsonl").write_text(
+            '{"timestamp":"2026-01-01T00:00:00Z","actor":"test","tool":null,'
+            '"files":["a.py"],"gates":{"identity":"PASS"},"kernels":[],'
+            '"decision":"PASS","reason":"","resolution_trace":{},'
+            '"prev_hash":"genesis","signature":"","key_id":""}\n'
+        )
+        result = cmd_verify(tmp_repo)
+        captured = capsys.readouterr()
+        assert result == 1
+        assert "BROKEN" in captured.out

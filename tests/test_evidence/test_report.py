@@ -19,6 +19,8 @@ class TestReport:
         assert data["total"] == 5
         assert data["passed"] == 4
         assert data["blocked"] == 1
+        assert data["chain_status"] == "VALID"
+        assert data["chain_valid"] is True
 
     def test_empty_log(self, tmp_path: Path):
         log = tmp_path / "empty.jsonl"

@@ -1,6 +1,7 @@
 """Tests for gate pipeline."""
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from sworn.config import SwornConfig, _compile_patterns
@@ -42,6 +43,35 @@ class TestPipeline:
         result = run_pipeline(tmp_repo, ["deploy/prod.yml"], config)
         assert result.decision == "BLOCKED"
         assert "allowlist" in result.reason.lower() or result.gate_results.get("allowlist") == "BLOCKED"
+
+    def test_allowlist_recorded_when_security_already_blocked(self, tmp_repo: Path):
+        config = _config(allowlist=["src/*"])
+        result = run_pipeline(tmp_repo, ["crypto/vault.py"], config)
+        assert result.decision == "BLOCKED"
+        assert result.gate_results["security"] == "BLOCKED"
+        assert result.gate_results["allowlist"] == "BLOCKED"
+
+    def test_actor_bound_to_gated_repo(self, tmp_repo: Path, tmp_path: Path, monkeypatch):
+        subprocess.run(
+            ["git", "config", "user.name", "gated-actor"],
+            cwd=tmp_repo,
+            capture_output=True,
+            check=True,
+        )
+        other = tmp_path / "cwd"
+        other.mkdir()
+        monkeypatch.chdir(other)
+        result = run_pipeline(tmp_repo, ["src/main.py"], _config())
+        assert result.actor == "gated-actor"
+
+    def test_kernel_required_next_action_logged(self, tmp_repo: Path):
+        config = _config()
+        result = run_pipeline(tmp_repo, ["crypto/vault.py"], config)
+        security_kernels = [
+            k for k in result.kernel_results if k["name"] == "security"
+        ]
+        assert security_kernels
+        assert security_kernels[0]["required_next_action"]
 
     def test_all_kernels_disabled_blocks(self, tmp_repo: Path):
         # Regression: zero kernels evaluated must never be recorded as PASS

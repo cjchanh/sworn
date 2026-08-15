@@ -44,8 +44,8 @@ def run_pipeline(
     reason = ""
     resolution_trace: dict[str, Any] = {}
 
-    # 1. Identity (never blocks)
-    identity = evaluate_identity(config.identity_env_vars)
+    # 1. Identity (records actor/tool; never blocks)
+    identity = evaluate_identity(config.identity_env_vars, repo_root)
     gate_results["identity"] = "PASS"
 
     # 2. Security
@@ -55,15 +55,16 @@ def run_pipeline(
         decision = "BLOCKED"
         reason = security.reason
 
-    # 3. Allowlist (only if not already blocked and allowlist is configured)
-    if decision == "PASS" and config.allowlist:
+    # 3. Allowlist — evaluate whenever configured, even if already blocked,
+    #    so evidence records every structural gate that was in force.
+    if config.allowlist:
         allowlist = evaluate_allowlist(files, config.allowlist)
         gate_results["allowlist"] = "PASS" if allowlist.passed else "BLOCKED"
-        if not allowlist.passed:
+        if decision == "PASS" and not allowlist.passed:
             decision = "BLOCKED"
             reason = allowlist.reason
     else:
-        gate_results["allowlist"] = "SKIP" if not config.allowlist else "SKIP"
+        gate_results["allowlist"] = "SKIP"
 
     # 4. Signing layout migration guard (fail-closed in signed mode)
     legacy_key = repo_root / ".sworn" / "signing.key"
@@ -121,6 +122,7 @@ def run_pipeline(
                 "decision": result.decision,
                 "triggered_rules": result.triggered_rules,
                 "evidence_summary": result.evidence_summary,
+                "required_next_action": result.required_next_action,
             }
         )
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from sworn.config import SwornConfig
-from sworn.evidence.log import read_entries, verify_chain
+from sworn.evidence.log import chain_status, read_entries, verify_chain
 
 CMMC_CONTROLS = [
     ("AC.L2-3.1.1", "Limit system access to authorized users"),
@@ -67,6 +67,7 @@ def generate_cmmc_report(
     """
     entries = read_entries(log_path)
     valid, chain_msg = verify_chain(log_path)
+    status = chain_status(valid, chain_msg)
 
     controls: list[dict[str, Any]] = []
     for control_id, _desc in CMMC_CONTROLS:
@@ -79,7 +80,8 @@ def generate_cmmc_report(
     report_data = {
         "controls": controls,
         "evidence_chain": {
-            "valid": valid,
+            "valid": status == "VALID",
+            "status": status,
             "message": chain_msg,
             "total_entries": len(entries),
         },
@@ -124,7 +126,7 @@ def _format_text(data: dict[str, Any]) -> str:
 
     # Evidence chain
     chain = data["evidence_chain"]
-    lines.append(f"Evidence Chain: {'VALID' if chain['valid'] else 'BROKEN'}")
+    lines.append(f"Evidence Chain: {chain['status']}")
     lines.append(f"  {chain['message']}")
     lines.append(f"  Total entries: {chain['total_entries']}")
 

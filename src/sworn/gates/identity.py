@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -15,8 +16,15 @@ class IdentityResult:
     confidence: str  # "detected", "inferred", "unknown"
 
 
-def evaluate_identity(env_vars: dict[str, str] | None = None) -> IdentityResult:
-    """Detect the actor and AI tool. Never blocks — always returns a result."""
+def evaluate_identity(
+    env_vars: dict[str, str] | None = None,
+    repo_root: Path | None = None,
+) -> IdentityResult:
+    """Detect the actor and AI tool. Never blocks — always returns a result.
+
+    Actor is read from the git config of ``repo_root`` when provided, so
+    evidence is bound to the repository being gated rather than the process cwd.
+    """
     if env_vars is None:
         env_vars = {
             "CLAUDE_CODE": "claude-code",
@@ -34,20 +42,20 @@ def evaluate_identity(env_vars: dict[str, str] | None = None) -> IdentityResult:
             confidence = "detected"
             break
 
-    # Get actor from git config
-    actor = _git_actor()
+    actor = _git_actor(repo_root)
 
     return IdentityResult(actor=actor, tool=tool, confidence=confidence)
 
 
-def _git_actor() -> str:
-    """Get actor name from git config."""
+def _git_actor(repo_root: Path | None = None) -> str:
+    """Get actor name from the gated repo's git config, not ambient cwd."""
     try:
         result = subprocess.run(
             ["git", "config", "user.name"],
             capture_output=True,
             text=True,
             timeout=5,
+            cwd=repo_root,
         )
         name = result.stdout.strip()
         if name:

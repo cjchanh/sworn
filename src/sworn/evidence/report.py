@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from sworn.evidence.log import read_entries, verify_chain
+from sworn.evidence.log import chain_status, read_entries, verify_chain
 
 
 def generate_report(
@@ -50,6 +50,7 @@ def generate_report(
 
     # Chain integrity
     chain_valid, chain_msg = verify_chain(log_path)
+    status = chain_status(chain_valid, chain_msg)
 
     # Date range
     timestamps = [e.get("timestamp", "") for e in entries]
@@ -67,7 +68,8 @@ def generate_report(
                 "top_files": dict(all_files.most_common(10)),
                 "tools": dict(tools),
                 "date_range": {"first": first, "last": last},
-                "chain_valid": chain_valid,
+                "chain_valid": status == "VALID",
+                "chain_status": status,
                 "chain_message": chain_msg,
             },
             indent=2,
@@ -103,7 +105,7 @@ def generate_report(
             lines.append(f"  [{count}] {f}")
         lines.append("")
 
-    lines.append(f"Chain integrity: {'VALID' if chain_valid else 'BROKEN'}")
+    lines.append(f"Chain integrity: {status}")
     lines.append(f"  {chain_msg}")
 
     return "\n".join(lines)

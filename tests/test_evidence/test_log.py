@@ -11,6 +11,7 @@ from sworn.evidence.log import (
     EvidenceLogError,
     append_entry,
     canonical_json,
+    chain_status,
     read_entries,
     read_last_hash,
     verify_chain,
@@ -306,3 +307,34 @@ class TestEvidenceLog:
             "decision": "PASS",
         }
         assert canonical_json(data) == canonical_json(reordered)
+
+    def test_missing_log_is_empty_not_valid(self, tmp_path: Path):
+        valid, msg = verify_chain(tmp_path / "missing.jsonl")
+        assert chain_status(valid, msg) == "EMPTY"
+        assert msg.startswith("EMPTY")
+
+    def test_empty_log_file_is_empty_not_valid(self, tmp_path: Path):
+        log = tmp_path / "empty.jsonl"
+        log.write_text("")
+        valid, msg = verify_chain(log)
+        assert chain_status(valid, msg) == "EMPTY"
+        assert msg.startswith("EMPTY")
+
+    def test_require_signatures_rejects_unsigned_log(
+        self, tmp_path: Path, signing_keypair
+    ):
+        sk, vk, _ = signing_keypair
+        log = tmp_path / "evidence.jsonl"
+        entry = EvidenceEntry(
+            timestamp="2026-01-01T00:00:00Z",
+            actor="test",
+            tool=None,
+            files=["a.py"],
+            gates={"identity": "PASS"},
+            kernels=[],
+            decision="PASS",
+        )
+        append_entry(log, entry, hash_chain=True)
+        valid, msg = verify_chain(log, verify_key=vk, require_signatures=True)
+        assert not valid
+        assert "missing signature" in msg.lower()

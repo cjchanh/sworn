@@ -31,6 +31,7 @@ def evaluate(kernel_input: KernelInput) -> KernelResult:
         )
 
     evidence.append(f"Actor: {actor}")
+    rules.append("AC.L2-3.1.1")
     if tool:
         evidence.append(f"AI tool detected: {tool}")
         rules.append("AC.L2-3.1.2")

@@ -55,7 +55,8 @@ Security-pattern blocks still win even when a file is allowlisted.
 ## Identity
 
 `[identity.env_vars]` maps environment variables to AI tool labels written into evidence.
-Identity detection is evidence-oriented. It does not provide organizational IAM assurance.
+Identity detection is evidence-oriented. It does not block, and it does not provide organizational IAM assurance.
+Actor is `git config user.name` of the repository being gated.
 
 ## Kernels
 
@@ -67,12 +68,16 @@ Custom kernels must be deterministic and side-effect free.
 `[evidence].log_path` controls where append-only JSONL evidence is written.
 `[evidence].hash_chain = true` enables the SHA-256 chain used by `sworn verify`.
 
-If evidence cannot be extended safely, Sworn now blocks the gate instead of degrading.
+If evidence cannot be extended safely, Sworn blocks the gate instead of degrading.
+
+`sworn verify` reports `EMPTY` (exit 1) when the log is missing or has no entries.
+That is not a verified attest. `VALID` requires a non-empty chain that passes integrity checks.
 
 ## Signing
 
 `[signing].enabled = true` requires a valid private key at `key_path`.
 If signing is enabled and the key is missing or unreadable, Sworn blocks the gate.
+`sworn verify` in signed mode also fail-closes: missing public keys or unsigned entries are `BROKEN`.
 
 Private key paths that should be gitignored:
 

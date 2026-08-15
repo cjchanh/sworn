@@ -15,6 +15,7 @@ class TestACAccess:
     def test_known_actor_passes(self):
         result = evaluate(_input(actor="cj"))
         assert result.decision == "PASS"
+        assert "AC.L2-3.1.1" in result.triggered_rules
 
     def test_unknown_actor_blocks(self):
         result = evaluate(_input(actor="unknown"))

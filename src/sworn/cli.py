@@ -9,7 +9,7 @@ from pathlib import Path
 
 from sworn import __version__
 from sworn.config import CONFIG_TEMPLATE, SwornConfig, load_config
-from sworn.evidence.log import read_entries, verify_chain
+from sworn.evidence.log import chain_status, read_entries, verify_chain
 from sworn.evidence.report import generate_report
 from sworn.pipeline import run_pipeline
 
@@ -473,7 +473,7 @@ def cmd_status(repo_root_override: Path | None) -> int:
 
         # Chain
         valid, msg = verify_chain(log_path)
-        print(f"Chain integrity: {'VALID' if valid else 'BROKEN'}")
+        print(f"Chain integrity: {chain_status(valid, msg)}")
     except Exception:
         print("Evidence: unable to read")
 
@@ -491,31 +491,54 @@ def cmd_status(repo_root_override: Path | None) -> int:
 
 
 def cmd_verify(repo_root_override: Path | None) -> int:
-    """Verify evidence chain integrity and signatures."""
+    """Verify evidence chain integrity and signatures.
+
+    EMPTY (no log / no entries) and BROKEN exit 1. VALID exits 0.
+    When signing is enabled, unsigned entries and missing public keys fail closed.
+    """
     repo_root = _find_repo_root(repo_root_override)
     config = load_config(repo_root)
     log_path = repo_root / config.evidence_log_path
+    require_signatures = config.signing_enabled
 
-    # Load verify key if present
     verify_key = None
+    verify_key_dir = None
     pub_path = repo_root / config.signing_pub_path
     if pub_path.exists():
         try:
             from sworn.evidence.signing import load_verify_key
             if pub_path.is_dir():
-                valid, msg = verify_chain(log_path, verify_key_dir=pub_path)
+                pubs = list(pub_path.glob("*.pub"))
+                if pubs:
+                    verify_key_dir = pub_path
+                elif require_signatures:
+                    print("Chain: BROKEN")
+                    print("  Signing enabled but no public keys found")
+                    return 1
             else:
                 verify_key = load_verify_key(pub_path)
-                valid, msg = verify_chain(log_path, verify_key=verify_key)
         except Exception as exc:
-            print(f"Warning: could not load verify key: {exc}")
-            valid = False
-            msg = f"failed to verify signatures: {exc}"
-    else:
-        valid, msg = verify_chain(log_path)
-    print(f"Chain: {'VALID' if valid else 'BROKEN'}")
+            print("Chain: BROKEN")
+            print(f"  failed to verify signatures: {exc}")
+            return 1
+    elif require_signatures:
+        print("Chain: BROKEN")
+        print(
+            "  Signing enabled but public key path missing: "
+            f"{config.signing_pub_path}"
+        )
+        return 1
+
+    valid, msg = verify_chain(
+        log_path,
+        verify_key=verify_key,
+        verify_key_dir=verify_key_dir,
+        require_signatures=require_signatures,
+    )
+    status = chain_status(valid, msg)
+    print(f"Chain: {status}")
     print(f"  {msg}")
-    return 0 if valid else 1
+    return 0 if status == "VALID" else 1
 
 
 def cmd_keygen(repo_root_override: Path | None) -> int:

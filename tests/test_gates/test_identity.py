@@ -5,6 +5,7 @@ import os
 from unittest.mock import patch
 
 from sworn.gates.identity import evaluate_identity
+from tests.gitutil import git_init
 
 
 class TestIdentityGate:
@@ -35,3 +36,26 @@ class TestIdentityGate:
         result = evaluate_identity({})
         assert isinstance(result.actor, str)
         assert len(result.actor) > 0
+
+    def test_actor_uses_gated_repo_git_config(self, tmp_repo, tmp_path, monkeypatch):
+        """Evidence actor is the gated repo's user.name, not ambient cwd."""
+        import subprocess
+
+        subprocess.run(
+            ["git", "config", "user.name", "gated-actor"],
+            cwd=tmp_repo,
+            capture_output=True,
+            check=True,
+        )
+        other = tmp_path / "other"
+        git_init(other)
+        subprocess.run(
+            ["git", "config", "user.name", "cwd-actor"],
+            cwd=other,
+            capture_output=True,
+            check=True,
+        )
+        monkeypatch.chdir(other)
+
+        result = evaluate_identity({}, repo_root=tmp_repo)
+        assert result.actor == "gated-actor"
