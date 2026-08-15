@@ -235,7 +235,14 @@ def cmd_check(repo_root_override: Path | None) -> int:
         return 1
 
     # Get staged files
-    files = _get_staged_files(repo_root)
+    try:
+        files = _get_staged_files(repo_root)
+    except RuntimeError as exc:
+        print(
+            f"SWORN BLOCKED — unable to determine staged files: {exc}",
+            file=sys.stderr,
+        )
+        return 1
     if not files:
         return 0  # Nothing staged, nothing to gate
 
@@ -259,7 +266,15 @@ def cmd_check(repo_root_override: Path | None) -> int:
 
 
 def _get_staged_files(repo_root: Path) -> list[str]:
-    """Get list of staged files via git."""
+    """Get list of staged files via git.
+
+    A failed probe is never an empty staging area: callers must not be able to
+    confuse "git could not answer" with "nothing is staged".
+
+    Raises:
+        RuntimeError: the git probe timed out, could not be executed, or exited
+            non-zero.
+    """
     try:
         result = subprocess.run(
             ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
@@ -268,11 +283,23 @@ def _get_staged_files(repo_root: Path) -> list[str]:
             cwd=repo_root,
             timeout=10,
         )
-        if result.returncode == 0:
-            return [f for f in result.stdout.strip().split("\n") if f]
-    except Exception:
-        pass
-    return []
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"git staged-file probe timed out after {exc.timeout}s"
+        ) from exc
+    except OSError as exc:
+        raise RuntimeError(f"git staged-file probe failed: {exc}") from exc
+
+    if result.returncode != 0:
+        # git can emit a full usage dump on stderr; the first line is the error.
+        detail = next(
+            (line for line in result.stderr.splitlines() if line.strip()), ""
+        )
+        raise RuntimeError(
+            detail.strip() or f"git staged-file probe exited {result.returncode}"
+        )
+
+    return [f for f in result.stdout.strip().split("\n") if f]
 
 
 def _get_pr_diff_files(repo_root: Path, base_ref: str | None = None) -> list[str]:

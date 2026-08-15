@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from sworn import __version__
-from sworn.cli import cmd_init, cmd_status, cmd_check, main
+from sworn.cli import _get_staged_files, cmd_init, cmd_status, cmd_check, main
 
 
 class TestCLI:
@@ -91,6 +91,53 @@ class TestCLI:
         cmd_init(tmp_repo)
         result = cmd_check(tmp_repo)
         assert result == 0  # Nothing to gate
+
+    def test_get_staged_files_raises_on_git_failure(self, tmp_repo: Path, monkeypatch):
+        import pytest
+
+        def failed_probe(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args[0], 128, "", "fatal: not a git repository"
+            )
+
+        monkeypatch.setattr(subprocess, "run", failed_probe)
+
+        with pytest.raises(RuntimeError, match="not a git repository"):
+            _get_staged_files(tmp_repo)
+
+    def test_check_blocks_when_git_probe_fails(
+        self, tmp_repo: Path, monkeypatch, capsys
+    ):
+        cmd_init(tmp_repo)
+
+        def failed_probe(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args[0], 128, "", "fatal: not a git repository"
+            )
+
+        monkeypatch.setattr(subprocess, "run", failed_probe)
+
+        result = cmd_check(tmp_repo)
+        captured = capsys.readouterr()
+
+        assert result == 1
+        assert "SWORN BLOCKED" in captured.err
+
+    def test_check_blocks_when_git_probe_cannot_execute(
+        self, tmp_repo: Path, monkeypatch, capsys
+    ):
+        cmd_init(tmp_repo)
+
+        def unrunnable_probe(*args, **kwargs):
+            raise OSError("git executable not found")
+
+        monkeypatch.setattr(subprocess, "run", unrunnable_probe)
+
+        result = cmd_check(tmp_repo)
+        captured = capsys.readouterr()
+
+        assert result == 1
+        assert "SWORN BLOCKED" in captured.err
 
     def test_status_not_initialized(self, tmp_repo: Path):
         result = cmd_status(tmp_repo)
