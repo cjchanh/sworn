@@ -70,8 +70,7 @@ git commit -m "test"
 
 ## What It Does
 
-Sworn runs a deterministic gate pipeline during local commit checks and CI
-diff checks.
+Sworn runs a 5-stage gate pipeline during local commit checks and CI diff checks:
 
 1. **Identity** — Records actor (gated repo `git config user.name`) and AI
    tool from environment. This stage **never blocks**. Unresolved actor is
@@ -89,6 +88,8 @@ diff checks.
 Every stage is deterministic. No AI in the governance loop. No network
 calls. No probabilistic analysis. Identity records and never blocks; other
 enabled stages either pass or block.
+
+For team-wide fail-closed posture, treat local hooks as developer fast-fail and make the CI gate a required status check. See `docs/DEPLOYMENT.md`.
 
 For team-wide fail-closed posture, treat local hooks as developer fast-fail and make the CI gate a required status check. See `docs/DEPLOYMENT.md`.
 
