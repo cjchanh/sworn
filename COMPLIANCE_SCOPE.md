@@ -25,7 +25,7 @@ Coverage categories:
 
 | Control | Category | Enforcement Surface | Evidence Artifact | Limitations |
 | --- | --- | --- | --- | --- |
-| AC.L2-3.1.1 | Detective | Identity gate + cmmc AC kernel | Evidence log entry (`actor`, `tool`, `decision`) | Does not block unresolved actor; relies on git metadata accuracy |
+| AC.L2-3.1.1 | Enforced | Identity gate + cmmc AC kernel — commit is BLOCKED when the actor is unresolved (empty or `unknown`) | Evidence log entry (`actor`, `tool`, `decision`) + block reason and required next action | Requires the cmmc kernel pack to be enabled; establishes that an actor is resolved, not that it is authentic — relies on git metadata accuracy; no org-level IAM enforcement |
 | AC.L2-3.1.2 | Evidence-Only | Tool detection note in cmmc AC kernel | Evidence log entry (`tool`) + cmmc report summary | No scope-validation gate; no org-level IAM enforcement |
 | AU.L2-3.3.1 | Enforced | Evidence log + hash chain (`sworn verify`) | Evidence log entry + chain continuity proofs | Repo-local integrity only |
 | AU.L2-3.3.2 | Evidence-Only | Resolution trace assembly | Resolution trace in evidence entry | Does not validate review quality |
