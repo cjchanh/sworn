@@ -66,6 +66,17 @@ def main(argv: list[str] | None = None) -> int:
     ci_p = sub.add_parser("ci-check", help="Run gate pipeline on PR diff files")
     ci_p.add_argument("--repo-root", type=Path, default=None)
     ci_p.add_argument("--base", type=str, default=None)
+    ci_p.add_argument(
+        "--advisory",
+        action="store_true",
+        help=(
+            "Opt OUT of fail-closed diff-base resolution. An unresolvable base "
+            "prints a loud ADVISORY notice and exits 0 instead of blocking. It "
+            "never prints PASS, and it does not affect gate verdicts: a kernel "
+            "BLOCK still exits 1. Refused when SWORN_CI=1 is set. May also be "
+            "requested with SWORN_ADVISORY=1."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -87,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "keygen":
         return cmd_keygen(args.repo_root)
     elif args.command == "ci-check":
-        return cmd_ci_check(args.repo_root, args.base)
+        return cmd_ci_check(args.repo_root, args.base, args.advisory)
 
     return 0
 
@@ -373,8 +384,44 @@ def _get_staged_files(repo_root: Path) -> list[str]:
     return [f for f in result.stdout.strip().split("\n") if f]
 
 
+class DiffBaseUnresolved(RuntimeError):
+    """No candidate ref yielded a computable diff.
+
+    Distinct from "the diff is genuinely empty". Callers must not be able to
+    confuse "git could not answer" with "nothing changed", because the two have
+    opposite security meanings: the first gated no files, the second gated every
+    file there was. Subclasses ``RuntimeError`` so existing handlers still catch
+    it.
+    """
+
+
+def _is_full_sha(ref: str) -> bool:
+    """True if ``ref`` is a full 40-character hex SHA."""
+    return len(ref) == 40 and all(c in "0123456789abcdefABCDEF" for c in ref)
+
+
 def _get_pr_diff_files(repo_root: Path, base_ref: str | None = None) -> list[str]:
-    """Get list of files changed in PR diff."""
+    """Get list of files changed in PR diff.
+
+    A failed probe is never an empty diff. If no candidate ref yields a
+    computable diff, this raises ``DiffBaseUnresolved`` rather than returning
+    ``[]`` — unconditionally, whether or not ``SWORN_CI`` is set. Returning an
+    empty list here would make an unresolvable base indistinguishable from a
+    clean diff, which is the fail-open path this function must not have.
+
+    ``SWORN_CI=1`` continues to govern exactly one thing: the stricter *base-ref
+    format* policy that requires a full 40-hex SHA. That is a CI-specific
+    requirement (the base SHA comes from ``github.event.pull_request.base.sha``)
+    and is deliberately not the local default, so a developer can still run
+    ``ci-check --base my-branch``. Pipelines already setting ``SWORN_CI=1``
+    therefore see no behavior change.
+
+    Raises:
+        DiffBaseUnresolved: no candidate ref produced a computable diff, or the
+            resolved base ref was empty.
+        RuntimeError: CI mode was declared and the base ref is missing or is not
+            a full 40-hex SHA.
+    """
     ci_mode = os.environ.get("SWORN_CI") == "1"
     if base_ref is None:
         base_ref = os.environ.get("SWORN_BASE_SHA")
@@ -386,16 +433,21 @@ def _get_pr_diff_files(repo_root: Path, base_ref: str | None = None) -> list[str
             raise RuntimeError(
                 "CI mode requires base ref: pass --base or set SWORN_BASE_SHA"
             )
-        if not (
-            len(base_ref) == 40
-            and all(c in "0123456789abcdefABCDEF" for c in base_ref)
-        ):
+        if not _is_full_sha(base_ref):
             raise RuntimeError(
                 "CI mode requires full base SHA (40 hex chars) "
                 "from github.event.pull_request.base.sha"
             )
 
-    if len(base_ref) == 40 and all(c in "0123456789abcdefABCDEF" for c in base_ref):
+    # An empty base is unresolvable, not a comparison against HEAD: without this
+    # the ref list degenerates to "...HEAD", which git happily resolves to an
+    # empty diff and would report as PASS.
+    if not base_ref.strip():
+        raise DiffBaseUnresolved(
+            "No diff base to compare against: pass --base or set SWORN_BASE_SHA"
+        )
+
+    if _is_full_sha(base_ref):
         refs = [base_ref]
     else:
         # Try origin/{base} first (CI), fall back to bare {base} (local)
@@ -419,18 +471,41 @@ def _get_pr_diff_files(repo_root: Path, base_ref: str | None = None) -> list[str
         except Exception:
             continue
 
-    if ci_mode:
-        raise RuntimeError(
-            "Failed to compute CI diff. Ensure actions/checkout uses "
-            "fetch-depth: 0 and the base SHA is available."
-        )
-
-    return []
+    raise DiffBaseUnresolved(
+        f"Failed to compute diff against base {base_ref!r} "
+        f"(tried: {', '.join(refs)}). Ensure the base ref is fetched — in CI, "
+        "actions/checkout needs fetch-depth: 0 and the base SHA available."
+    )
 
 
-def cmd_ci_check(repo_root_override: Path | None, base_ref: str | None) -> int:
+ADVISORY_BANNER = """\
+============================================================
+SWORN ADVISORY — GATE DID NOT RUN. THIS IS NOT A PASS.
+  {reason}
+  Advisory mode was requested (--advisory / SWORN_ADVISORY=1),
+  so this exits 0 having gated zero files. This exit code is
+  not an assurance signal. Remove --advisory to fail closed.
+============================================================"""
+
+
+def cmd_ci_check(
+    repo_root_override: Path | None,
+    base_ref: str | None,
+    advisory: bool = False,
+) -> int:
     """Run the gate pipeline on PR diff files (CI mode)."""
     repo_root = _find_repo_root(repo_root_override)
+
+    advisory = advisory or os.environ.get("SWORN_ADVISORY") == "1"
+    if advisory and os.environ.get("SWORN_CI") == "1":
+        # Two contradictory switches. Refusing is the fail-closed reading: a
+        # declared CI gate must not be downgradable by an advisory opt-out.
+        print(
+            "SWORN BLOCKED — advisory mode requested while SWORN_CI=1 is set. "
+            "Refusing to downgrade a declared CI gate; unset one of them.",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
         config = load_config(repo_root)
@@ -440,6 +515,12 @@ def cmd_ci_check(repo_root_override: Path | None, base_ref: str | None) -> int:
 
     try:
         files = _get_pr_diff_files(repo_root, base_ref)
+    except DiffBaseUnresolved as exc:
+        if advisory:
+            print(ADVISORY_BANNER.format(reason=exc), file=sys.stderr)
+            return 0
+        print(f"SWORN BLOCKED — {exc}", file=sys.stderr)
+        return 1
     except RuntimeError as exc:
         print(f"SWORN BLOCKED — {exc}", file=sys.stderr)
         return 1

@@ -134,3 +134,170 @@ class TestCICheck:
         with patch.dict(os.environ, {"SWORN_CI": "1"}, clear=False):
             result = cmd_ci_check(tmp_repo, None)
         assert result == 1
+
+
+# Boundary B-2 regression suite.
+#
+# An unresolvable diff base used to print "SWORN PASS — no files in diff" and
+# exit 0 unless SWORN_CI=1 was set, so a pipeline that forgot the env var
+# reported success precisely when the gate did the least work. These tests pin
+# the FAILING case (unresolvable base must block with no env var set), not just
+# the passing one, because a gate only ever observed succeeding is not a gate.
+
+BOGUS_SHA = "0" * 40
+BOGUS_BRANCH = "nonexistent-branch-xyz"
+
+# Env vars that steer ci-check. Tests must neutralize all of them explicitly so
+# the default-path assertions cannot be rescued by ambient CI environment.
+_STEERING_VARS = ("SWORN_CI", "SWORN_ADVISORY", "SWORN_BASE_SHA", "GITHUB_BASE_REF")
+
+
+def _clean_env(**overrides: str):
+    """Patch os.environ with the steering vars removed, then apply overrides.
+
+    PATH and friends are preserved because these tests shell out to real git;
+    ``clear=True`` alone would break the subprocess calls.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in _STEERING_VARS}
+    env.update(overrides)
+    return patch.dict(os.environ, env, clear=True)
+
+
+class TestCIDiffBaseFailsClosedByDefault:
+    """AC1 — an unresolvable diff base blocks with no env var required."""
+
+    def test_unresolvable_full_sha_base_blocks_by_default(self, tmp_repo: Path):
+        """The headline failing case: bogus 40-hex base, no SWORN_CI."""
+        cmd_init(tmp_repo)
+        with _clean_env():
+            result = cmd_ci_check(tmp_repo, BOGUS_SHA)
+        assert result == 1
+
+    def test_unresolvable_branch_name_blocks_by_default(self, tmp_repo: Path):
+        cmd_init(tmp_repo)
+        with _clean_env():
+            result = cmd_ci_check(tmp_repo, BOGUS_BRANCH)
+        assert result == 1
+
+    def test_empty_base_ref_blocks_by_default(self, tmp_repo: Path):
+        """An empty base must not degenerate to a HEAD...HEAD empty diff."""
+        cmd_init(tmp_repo)
+        with _clean_env():
+            result = cmd_ci_check(tmp_repo, "")
+        assert result == 1
+
+    def test_block_output_never_claims_pass(self, tmp_repo: Path, capsys):
+        """The two outcomes must not be confusable by a log scraper."""
+        cmd_init(tmp_repo)
+        with _clean_env():
+            result = cmd_ci_check(tmp_repo, BOGUS_SHA)
+        captured = capsys.readouterr()
+        assert result == 1
+        assert "SWORN PASS" not in captured.out + captured.err
+        assert "SWORN BLOCKED" in captured.err
+
+    def test_genuinely_empty_diff_still_passes(self, tmp_repo: Path, capsys):
+        """Guard against over-blocking: a resolvable base with no changes passes."""
+        cmd_init(tmp_repo)
+        with _clean_env():
+            result = cmd_ci_check(tmp_repo, "HEAD")
+        captured = capsys.readouterr()
+        assert result == 0
+        assert "SWORN PASS" in captured.out
+
+
+class TestCIAdvisoryOptOut:
+    """AC2 — advisory is an explicit opt-OUT that never prints a bare PASS."""
+
+    def test_advisory_flag_exits_zero_with_banner(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        with _clean_env():
+            result = cmd_ci_check(tmp_repo, BOGUS_SHA, advisory=True)
+        captured = capsys.readouterr()
+        assert result == 0
+        assert "SWORN ADVISORY" in captured.err
+        assert "THIS IS NOT A PASS" in captured.err
+
+    def test_advisory_env_var_exits_zero_with_banner(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        with _clean_env(SWORN_ADVISORY="1"):
+            result = cmd_ci_check(tmp_repo, BOGUS_SHA)
+        captured = capsys.readouterr()
+        assert result == 0
+        assert "SWORN ADVISORY" in captured.err
+
+    def test_advisory_never_prints_pass_token(self, tmp_repo: Path, capsys):
+        """Exit 0 is allowed here; claiming PASS is not."""
+        cmd_init(tmp_repo)
+        capsys.readouterr()  # drop cmd_init's banner; assert on ci-check alone
+        with _clean_env():
+            cmd_ci_check(tmp_repo, BOGUS_SHA, advisory=True)
+        captured = capsys.readouterr()
+        assert "SWORN PASS" not in captured.out + captured.err
+        assert captured.out == ""
+
+    def test_advisory_refused_when_ci_mode_declared(self, tmp_repo: Path, capsys):
+        """Advisory must not be able to defang a pipeline that declared CI mode."""
+        cmd_init(tmp_repo)
+        with _clean_env(SWORN_CI="1"):
+            result = cmd_ci_check(tmp_repo, BOGUS_SHA, advisory=True)
+        captured = capsys.readouterr()
+        assert result == 1
+        assert "SWORN BLOCKED" in captured.err
+        assert "SWORN PASS" not in captured.out + captured.err
+
+    def test_advisory_does_not_downgrade_a_gate_verdict(self, tmp_repo: Path):
+        """Advisory relaxes base resolution only — a blocked kernel still exits 1."""
+        res = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=tmp_repo, capture_output=True, text=True,
+        )
+        default_branch = res.stdout.strip()
+        subprocess.run(
+            ["git", "checkout", "-b", "feature"],
+            cwd=tmp_repo, capture_output=True,
+        )
+        (tmp_repo / "crypto").mkdir()
+        (tmp_repo / "crypto" / "vault.py").write_text("secret = 42")
+        subprocess.run(
+            ["git", "add", "crypto/vault.py"], cwd=tmp_repo, capture_output=True
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "add crypto"],
+            cwd=tmp_repo, capture_output=True, check=True,
+        )
+        cmd_init(tmp_repo)
+        with _clean_env():
+            result = cmd_ci_check(tmp_repo, default_branch, advisory=True)
+        assert result == 1
+
+
+class TestCIBackwardCompatSwornCIEnvVar:
+    """SWORN_CI=1 keeps its exact prior meaning: same inputs, same exit codes."""
+
+    def test_sworn_ci_still_blocks_unresolvable_full_sha(self, tmp_repo: Path):
+        cmd_init(tmp_repo)
+        with _clean_env(SWORN_CI="1"):
+            result = cmd_ci_check(tmp_repo, BOGUS_SHA)
+        assert result == 1
+
+    def test_sworn_ci_still_requires_full_sha(self, tmp_repo: Path, capsys):
+        """The 40-hex format policy remains CI-only, not the local default."""
+        cmd_init(tmp_repo)
+        with _clean_env(SWORN_CI="1"):
+            result = cmd_ci_check(tmp_repo, BOGUS_BRANCH)
+        captured = capsys.readouterr()
+        assert result == 1
+        assert "full base SHA" in captured.err
+
+    def test_local_branch_name_base_is_still_accepted(self, tmp_repo: Path):
+        """Without SWORN_CI, a resolvable branch name is not a format error."""
+        res = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=tmp_repo, capture_output=True, text=True,
+        )
+        default_branch = res.stdout.strip()
+        cmd_init(tmp_repo)
+        with _clean_env():
+            result = cmd_ci_check(tmp_repo, default_branch)
+        assert result == 0
