@@ -14,8 +14,16 @@ that tree. Boundaries are labeled with how they were established:
 - **Verified** — reproduced by running the CLI and observing the output.
 - **Code-grounded** — established by reading the cited source path; not
   reproduced live.
+- **CLOSED** — the boundary was fixed. The entry names the fix commit and keeps
+  the original description, so the record of what was once true survives the
+  fix. Line numbers in a CLOSED entry refer to the tree *before* the fix.
 
 No boundary below is stated from inference alone.
+
+**Subsequent changes.** B-2 was closed in
+`18ebbb8ef74f0a0ea0bd6d1e790eedacb48833c4` (`0.4.0-41-g18ebbb8`) and
+re-verified against that tree. Every other boundary below still describes
+`90aa0a1` and has not been re-read since.
 
 ---
 
@@ -65,66 +73,102 @@ adversary capability.
 
 ---
 
-## B-2 — Fail-closed CI diff resolution is gated on an environment variable
+## B-2 — Fail-closed CI diff resolution was gated on an environment variable
 
-**Status:** Verified.
+**Status:** **CLOSED** in `18ebbb8ef74f0a0ea0bd6d1e790eedacb48833c4`
+(`0.4.0-41-g18ebbb8`). Verified before and after. The entry is kept rather than
+deleted so the history of the boundary stays auditable; the residual is recorded
+at the end.
 
-**What it is.** `_get_pr_diff_files()` decides whether an unresolvable diff base
-is an error or an empty result based solely on `SWORN_CI`:
+**What it was.** `_get_pr_diff_files()` decided whether an unresolvable diff base
+was an error or an empty result based solely on `SWORN_CI`:
 
-- `src/sworn/cli.py:378` — `ci_mode = os.environ.get("SWORN_CI") == "1"`
+- `src/sworn/cli.py:378` (at `90aa0a1`) — `ci_mode = os.environ.get("SWORN_CI") == "1"`
 - `src/sworn/cli.py:422-428` — the `RuntimeError` for a failed diff computation
-  is raised **only** `if ci_mode`; otherwise the function falls through to
+  was raised **only** `if ci_mode`; otherwise the function fell through to
   `return []`.
 - `src/sworn/cli.py:446-448` — `cmd_ci_check` maps an empty file list to
   `print("SWORN PASS — no files in diff")` and `return 0`.
 
-The consequence is that outside CI mode, "I could not resolve the diff base" and
-"the diff is legitimately empty" produce the identical output and the identical
+The consequence was that outside CI mode, "I could not resolve the diff base" and
+"the diff is legitimately empty" produced the identical output and the identical
 exit code.
 
-**Verification.** Run in a scratch repository against the tree at `90aa0a1`:
-
-| Command | Output | Exit |
-|---|---|---|
-| `sworn ci-check --base 0000…0000` (no `SWORN_CI`) | `SWORN PASS — no files in diff` | `0` |
-| `SWORN_CI=1 sworn ci-check --base 0000…0000` | `SWORN BLOCKED — Failed to compute CI diff…` | `1` |
-| `sworn ci-check --base nonexistent-branch-xyz` (no `SWORN_CI`) | `SWORN PASS — no files in diff` | `0` |
-| `SWORN_CI=1 sworn ci-check --base nonexistent-branch-xyz` | `SWORN BLOCKED — CI mode requires full base SHA (40 hex chars)…` | `1` |
-
-`0000…0000` is a full 40-hex SHA that does not resolve in the test repository.
-
-**Why it exists.** The non-CI path exists so a developer can run `ci-check`
+**Why it existed.** The non-CI path existed so a developer could run `ci-check`
 locally against a branch name without being forced to supply a full 40-character
-base SHA. The strict validation is deliberately reserved for CI, where the base
-SHA is supplied by `github.event.pull_request.base.sha`.
+base SHA. The strict validation was deliberately reserved for CI, where the base
+SHA is supplied by `github.event.pull_request.base.sha`. The defect was that one
+`ci_mode` flag gated **two** unrelated policies: the base-ref *format* rule and
+the resolution-*failure* rule. Only the first is CI-specific.
 
-**What an attacker can do inside it.** A CI pipeline that invokes `sworn
-ci-check` **without** setting `SWORN_CI=1` is not fail-closed. If the base ref
-cannot be resolved — a shallow clone, a missing `fetch-depth: 0`, a renamed
-default branch, a fork PR without base history — the job prints `SWORN PASS` and
-exits `0`. The gate reports success precisely when it did the least work. This
-is the highest-consequence boundary in this document, because it converts a
+**What an attacker could do inside it.** A CI pipeline that invoked `sworn
+ci-check` **without** setting `SWORN_CI=1` was not fail-closed. If the base ref
+could not be resolved — a shallow clone, a missing `fetch-depth: 0`, a renamed
+default branch, a fork PR without base history — the job printed `SWORN PASS` and
+exited `0`. The gate reported success precisely when it did the least work. This
+was the highest-consequence boundary in this document, because it converted a
 misconfiguration into a green check rather than a red one.
 
-**What mitigates it today.** Setting `SWORN_CI=1` in the workflow environment
-restores fail-closed behavior for both unresolvable and malformed base refs, as
-the table above shows. `README.md` §*CI Enforcement (Fail-Closed)* documents the
-`fetch-depth: 0` requirement. The documented deployment path is correct; the
-failure mode is what happens when it is not followed.
+**What changed.** The two policies are now separate:
 
-**Remediation options (no commitment, no dates).**
+- Resolution failure raises `DiffBaseUnresolved` unconditionally
+  (`src/sworn/cli.py`, `_get_pr_diff_files`). There is no longer a path on which
+  a failed diff computation returns `[]`, so it can no longer reach the `PASS`
+  branch. No environment variable is required for this.
+- The 40-hex base-SHA *format* rule remains gated on `SWORN_CI=1`, preserving
+  local `--base my-branch` ergonomics.
+- An empty base ref is now also unresolvable. Previously it reduced the ref list
+  to `...HEAD`, which git resolves to an empty diff and reported as `PASS`.
+- Advisory behavior became an explicit opt-out: `--advisory` or
+  `SWORN_ADVISORY=1`.
 
-1. Auto-detect CI from the standard `CI=true` environment variable that GitHub
-   Actions, GitLab, and CircleCI all set, so `SWORN_CI` becomes an override
-   rather than the sole trigger.
-2. Distinguish the two empty-list cases at the call site — return a sentinel for
-   "resolution failed" versus "diff genuinely empty" — so the non-CI path can
-   print a distinct, non-`PASS` message even when it does not exit non-zero.
-3. Emit a warning on the non-CI path whenever every ref lookup failed, so a
-   misconfigured pipeline is visible in the log even while exiting `0`.
-4. Document `SWORN_CI=1` as mandatory in `docs/DEPLOYMENT.md` and in the
-   `action.yml` wrapper.
+**Backward compatibility.** `SWORN_CI=1` keeps its exact prior meaning. For
+resolution failures it now selects what is already the default, making it
+redundant-but-harmless; for the format rule it is still the trigger. Identical
+inputs produce identical exit codes for every pipeline that already sets it.
+
+**Verification.** Same scratch-repository procedure as before, run against both
+trees. `0000…0000` is a full 40-hex SHA that does not resolve in the test
+repository.
+
+| Command | Before (`90aa0a1`) | After (`18ebbb8`) |
+|---|---|---|
+| `sworn ci-check --base 0000…0000` (no env) | `SWORN PASS — no files in diff` · `0` | `SWORN BLOCKED — Failed to compute diff against base…` · `1` |
+| `sworn ci-check --base nonexistent-branch-xyz` (no env) | `SWORN PASS — no files in diff` · `0` | `SWORN BLOCKED — Failed to compute diff against base…` · `1` |
+| `sworn ci-check --base ""` (no env) | `SWORN PASS — no files in diff` · `0` | `SWORN BLOCKED — No diff base to compare against…` · `1` |
+| `SWORN_CI=1 sworn ci-check --base 0000…0000` | `SWORN BLOCKED — Failed to compute CI diff…` · `1` | `SWORN BLOCKED — Failed to compute diff against base…` · `1` |
+| `SWORN_CI=1 sworn ci-check --base nonexistent-branch-xyz` | `SWORN BLOCKED — CI mode requires full base SHA…` · `1` | `SWORN BLOCKED — CI mode requires full base SHA…` · `1` |
+| `sworn ci-check --base HEAD` (resolvable, no changes) | `SWORN PASS — no files in diff` · `0` | `SWORN PASS — no files in diff` · `0` |
+| `sworn ci-check --base 0000…0000 --advisory` | *flag did not exist* | `SWORN ADVISORY — GATE DID NOT RUN. THIS IS NOT A PASS.` · `0` |
+| `SWORN_ADVISORY=1 sworn ci-check --base 0000…0000` | `SWORN PASS — no files in diff` · `0` | `SWORN ADVISORY — GATE DID NOT RUN. THIS IS NOT A PASS.` · `0` |
+| `SWORN_CI=1 sworn ci-check --base 0000…0000 --advisory` | *flag did not exist* | `SWORN BLOCKED — advisory mode requested while SWORN_CI=1 is set…` · `1` |
+
+Regression tests pin the failing case, not only the passing one:
+`tests/test_ci_check.py::TestCIDiffBaseFailsClosedByDefault`,
+`::TestCIAdvisoryOptOut`, `::TestCIBackwardCompatSwornCIEnvVar`. They clear the
+steering environment variables explicitly so an ambient `SWORN_CI` in a CI
+runner cannot rescue a default-path assertion. Reverting the fix turns six of
+them red; a property-neutral edit to the same statement (rewording the error
+message) leaves all of them green.
+
+**Residual boundary — the advisory opt-out is a deliberate fail-open.**
+`--advisory` / `SWORN_ADVISORY=1` still exits `0` when the base cannot be
+resolved. Three properties bound it, and they are the reason it is acceptable
+where the previous default was not:
+
+1. It requires an explicit act. It is never the default.
+2. It never prints the `PASS` token, and its banner states that the gate did not
+   run. A log scraper keyed on `SWORN PASS` cannot be fooled by it. The banner
+   goes to stderr and nothing is written to stdout.
+3. It is scoped to diff-base resolution only. It does not downgrade a gate
+   verdict — a blocked kernel still exits `1`
+   (`tests/test_ci_check.py::TestCIAdvisoryOptOut::test_advisory_does_not_downgrade_a_gate_verdict`).
+   Requesting it while `SWORN_CI=1` is set is refused, so it cannot be used to
+   defang a pipeline that declared itself a CI gate.
+
+Anyone auditing a pipeline should still confirm that `--advisory` and
+`SWORN_ADVISORY` appear nowhere in it. That check is now possible, which it was
+not before: previously the fail-open state had no distinguishing marker at all.
 
 ---
 
@@ -501,7 +545,8 @@ Recorded so the gaps are visible rather than implied:
 ## Method
 
 Test suite at the time of writing: `PYTHONPATH=src python3 -m pytest tests -q`
-→ **207 passed**, exit `0`.
+→ **207 passed**, exit `0`. After the B-2 fix (`18ebbb8`) the same command
+→ **220 passed**, exit `0`; the 13 added tests are the B-2 regression suite.
 
 Live boundary checks (B-2, B-3, B-4, B-8) were run against scratch
 repositories outside this tree, using `PYTHONPATH` pointed at `src/`, so no

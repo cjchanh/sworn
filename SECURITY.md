@@ -49,8 +49,14 @@ Two are load-bearing for anyone deploying Sworn as a control:
 
 - **Local `pre-commit` hooks are bypassable** (`git commit --no-verify`).
   Enforcement requires the CI gate as a required status check.
-- **Fail-closed CI diff resolution is gated on `SWORN_CI=1`.** Without it, an
-  unresolvable diff base prints `SWORN PASS` and exits `0`.
+- **`sworn ci-check` can be put into advisory mode.** With `--advisory` or
+  `SWORN_ADVISORY=1`, an unresolvable diff base exits `0` instead of blocking.
+  It prints a loud `SWORN ADVISORY` banner and never prints `PASS`, but the exit
+  code is not an assurance signal. Confirm neither appears in your pipeline.
+
+Boundary B-2 — fail-closed diff resolution being gated on `SWORN_CI=1` — was
+closed in `18ebbb8`. An unresolvable diff base now blocks by default, with no
+environment variable required.
 
 Read that document before treating a Sworn `PASS` as an assurance claim.
 
@@ -62,8 +68,8 @@ Read that document before treating a Sworn `PASS` as an assurance claim.
 - Evidence log tampering that verification does not detect
 - Signature verification accepting an invalid or mismatched signature
 - Hash-chain discontinuity that `sworn verify` reports as `VALID`
-- CI diff-base resolution failures that do not fail closed **with `SWORN_CI=1`
-  set**
+- CI diff-base resolution failures that do not fail closed, with or without
+  `SWORN_CI=1` set, when advisory mode was not requested
 - Private key material written to a location Sworn reports as safe
 - Kernel loader behavior that bypasses the fail-closed import path
 
@@ -73,7 +79,8 @@ Read that document before treating a Sworn `PASS` as an assurance claim.
 - `git commit --no-verify`, hook removal, or `core.hooksPath` redirection
 - Arbitrary code execution via a custom kernel the repository already trusts
 - A spoofed `git config user.name` being recorded as actor
-- `sworn ci-check` not failing closed when `SWORN_CI=1` is **not** set
+- `sworn ci-check` exiting `0` on an unresolvable diff base when advisory mode
+  was explicitly requested (`--advisory` / `SWORN_ADVISORY=1`)
 - `sworn report` exiting `0` on an empty or broken log
 - Theft of a private signing key, or compromise of the workstation or CI host
 - Absence of PKI, org identity, or C3PAO certification
