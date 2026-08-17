@@ -1,4 +1,5 @@
 [![CI](https://github.com/cjchanh/sworn/actions/workflows/ci.yml/badge.svg)](https://github.com/cjchanh/sworn/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/cjchanh/sworn/actions/workflows/codeql.yml/badge.svg)](https://github.com/cjchanh/sworn/actions/workflows/codeql.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/sworncode)](https://pypi.org/project/sworncode/)
 
@@ -11,6 +12,8 @@ effective hooks path, runs a configurable gate pipeline on local commit checks
 and CI diff checks, and produces tamper-evident evidence logs.
 
 Cross-tool enforcement for any AI coding tool that commits through git.
+
+Security policy and reporting: [`SECURITY.md`](SECURITY.md) · Documented limits of enforcement: [`docs/KNOWN_BOUNDARIES.md`](docs/KNOWN_BOUNDARIES.md)
 
 ## Governance Summary
 
@@ -28,6 +31,7 @@ produces auditable evidence for compliance programs.
 For full threat model and scope boundaries:
 
 - `SECURITY.md`
+- `docs/KNOWN_BOUNDARIES.md`
 - `COMPLIANCE_SCOPE.md`
 - `GOVERNANCE_OVERVIEW.md`
 - `RELEASE_PROCESS.md`
