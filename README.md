@@ -95,8 +95,6 @@ enabled stages either pass or block.
 
 For team-wide fail-closed posture, treat local hooks as developer fast-fail and make the CI gate a required status check. See `docs/DEPLOYMENT.md`.
 
-For team-wide fail-closed posture, treat local hooks as developer fast-fail and make the CI gate a required status check. See `docs/DEPLOYMENT.md`.
-
 ## Commands
 
 ```bash
