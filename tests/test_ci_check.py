@@ -301,3 +301,71 @@ class TestCIBackwardCompatSwornCIEnvVar:
         with _clean_env():
             result = cmd_ci_check(tmp_repo, default_branch)
         assert result == 0
+
+
+class TestModuleDirectExitPropagation:
+    """B-2 residual (2026-08-18): `python -m sworn.cli` used to swallow
+    main()'s exit code — every BLOCK exited 0. The guard makes all three
+    invocation shapes (console script, python -m sworn, python -m
+    sworn.cli) identical. Pins the FAILING case, not the passing one."""
+
+    def test_module_direct_invocation_propagates_block_exit_code(
+        self, tmp_repo: Path
+    ):
+        import subprocess
+        import sys
+
+        repo_root = Path(__file__).resolve().parents[1]
+        src = repo_root / "src"
+        zeros = "0" * 40
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "sworn.cli",
+                "ci-check",
+                "--base",
+                zeros,
+                str(tmp_repo) if False else "--repo",
+                str(tmp_repo),
+            ]
+            if False
+            else [sys.executable, "-m", "sworn.cli", "ci-check", "--base", zeros],
+            capture_output=True,
+            text=True,
+            cwd=tmp_repo,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(src),
+                "SWORN_CI": "",
+                "SWORN_ADVISORY": "",
+            },
+            timeout=60,
+        )
+        assert result.returncode == 1, (
+            f"module-direct shape swallowed the block: rc={result.returncode} "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        assert "SWORN BLOCKED" in result.stderr
+
+    def test_module_direct_invocation_pass_shape_still_zero(self, tmp_repo: Path):
+        import subprocess
+        import sys
+
+        repo_root = Path(__file__).resolve().parents[1]
+        src = repo_root / "src"
+        # An empty diff against HEAD in a clean repo is a legitimate PASS.
+        result = subprocess.run(
+            [sys.executable, "-m", "sworn.cli", "ci-check", "--base", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=tmp_repo,
+            env={
+                **os.environ,
+                "PYTHONPATH": str(src),
+                "SWORN_CI": "",
+                "SWORN_ADVISORY": "",
+            },
+            timeout=60,
+        )
+        assert result.returncode == 0, result.stderr

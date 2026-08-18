@@ -722,3 +722,16 @@ def cmd_keygen(repo_root_override: Path | None) -> int:
     _warn_for_missing_key_ignores(repo_root)
 
     return 0
+
+
+if __name__ == "__main__":  # pragma: no cover — exercised via subprocess test
+    # B-2 residual (2026-08-18): the package entrypoint (sworn/__main__.py)
+    # and the console script both propagate main()'s exit code; invoking this
+    # module directly used to discard it, so EVERY verdict — BLOCKED
+    # included — exited 0. Verified live: bogus --base printed "SWORN
+    # BLOCKED" and the process exited 0. One guard, all three shapes
+    # identical. Regression: tests/test_ci_check.py::
+    # test_module_direct_invocation_propagates_block_exit_code.
+    import sys as _sys
+
+    raise SystemExit(main(_sys.argv[1:]))
