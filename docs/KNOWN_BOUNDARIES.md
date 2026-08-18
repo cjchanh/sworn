@@ -151,6 +151,15 @@ runner cannot rescue a default-path assertion. Reverting the fix turns six of
 them red; a property-neutral edit to the same statement (rewording the error
 message) leaves all of them green.
 
+**Second residual, closed `1a601716ff9be12384f9e816cca6a315cf5158b2` (2026-08-18).** The module-direct
+invocation shape () lacked the exit guard the package
+entrypoint and console script carry, so every BLOCKED verdict exited 0 under
+it — the B-2 fail-open family surviving one invocation shape away from the
+supported ones. Closed by adding the same `raise SystemExit(main())` guard
+to cli.py; pinned by a failing-case regression test
+(test_module_direct_invocation_propagates_block_exit_code). Audit:
+~/.governance/receipts/security-audit/sworn-b2-residual-exit-propagation-rule2-2026-08-18.md.
+
 **Residual boundary — the advisory opt-out is a deliberate fail-open.**
 `--advisory` / `SWORN_ADVISORY=1` still exits `0` when the base cannot be
 resolved. Three properties bound it, and they are the reason it is acceptable
