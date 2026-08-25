@@ -43,4 +43,11 @@ if [ -n "$MATCHES" ]; then
     exit 1
 fi
 
+# --- spec-id guard (chained 2026-08-20) -------------------------------------
+# Spec 3713026. No-op unless CDS_ACTIVE_SPEC_ID is set.
+if [ -x "$HOME/.claude/hooks/commit_msg_spec_id_guard.py" ]; then
+    python3 "$HOME/.claude/hooks/commit_msg_spec_id_guard.py" "$1" || exit $?
+fi
+# ---------------------------------------------------------------------------
+
 exit 0
