@@ -34,7 +34,7 @@ dev = ["pytest>=7.0"]
 signing = ["pynacl>=1.5.0"]
 
 [project.urls]
-Homepage = "https://sworncode.dev"
+Homepage = "https://centennialsystems.com/products/sworn"
 Repository = "https://github.com/cjchanh/sworn"
 Issues = "https://github.com/cjchanh/sworn/issues"
 
