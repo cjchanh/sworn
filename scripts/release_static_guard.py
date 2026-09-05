@@ -44,7 +44,10 @@ def main() -> int:
 
     require_contains(ROOT / "src" / "sworn" / "__init__.py", f'__version__ = "{version}"')
     require_contains(ROOT / "action.yml", f'default: "{version}"')
-    require_contains(ROOT / "examples" / "sworn-ci.yml", f"CentennialDefenseSystemsInc/sworn@{version}")
+    require_contains(ROOT / "examples" / "sworn-ci.yml", f"cjchanh/sworn@{version}")
+    require_absent(ROOT / "examples" / "sworn-ci.yml", "CentennialDefenseSystemsInc")
+    require_absent(ROOT / "docs" / "DEPLOYMENT.md", "CentennialDefenseSystemsInc")
+    require_absent(ROOT / "pyproject.toml", "CentennialDefenseSystemsInc")
     require_contains(ROOT / "examples" / "sworn-ci.yml", f'version: "{version}"')
     require_contains(ROOT / "README.md", f"CMMC-focused in {version}")
     require_contains(ROOT / "COMPLIANCE_SCOPE.md", f"Sworn version {version}")

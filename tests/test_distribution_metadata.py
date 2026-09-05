@@ -31,7 +31,8 @@ def test_example_workflow_uses_real_release_tag():
     version = _project_version()
     content = (ROOT / "examples" / "sworn-ci.yml").read_text()
 
-    assert f"CentennialDefenseSystemsInc/sworn@{version}" in content
+    assert f"cjchanh/sworn@{version}" in content
+    assert "CentennialDefenseSystemsInc" not in content
 
 
 def test_gitignore_covers_active_and_legacy_private_keys():

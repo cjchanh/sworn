@@ -541,6 +541,54 @@ def cmd_ci_check(
     return 1
 
 
+def _verify_signed_chain(
+    repo_root: Path,
+    config: SwornConfig,
+    log_path: Path,
+) -> tuple[bool, str]:
+    """Load repo-local verify keys and verify the evidence chain.
+
+    Returns (ok, reason). reason is the same two-line output cmd_verify prints.
+    Fail-closed: a missing public key with signing enabled is a refusal.
+    """
+    require_signatures = config.signing_enabled
+
+    verify_key = None
+    verify_key_dir = None
+    pub_path = repo_root / config.signing_pub_path
+    if pub_path.exists():
+        try:
+            from sworn.evidence.signing import load_verify_key
+            if pub_path.is_dir():
+                pubs = list(pub_path.glob("*.pub"))
+                if pubs:
+                    verify_key_dir = pub_path
+                elif require_signatures:
+                    return False, (
+                        "Chain: BROKEN\n"
+                        "  Signing enabled but no public keys found"
+                    )
+            else:
+                verify_key = load_verify_key(pub_path)
+        except Exception as exc:
+            return False, f"Chain: BROKEN\n  failed to verify signatures: {exc}"
+    elif require_signatures:
+        return False, (
+            "Chain: BROKEN\n"
+            "  Signing enabled but public key path missing: "
+            f"{config.signing_pub_path}"
+        )
+
+    valid, msg = verify_chain(
+        log_path,
+        verify_key=verify_key,
+        verify_key_dir=verify_key_dir,
+        require_signatures=require_signatures,
+    )
+    status = chain_status(valid, msg)
+    return status == "VALID", f"Chain: {status}\n  {msg}"
+
+
 def cmd_report(
     repo_root_override: Path | None,
     output_format: str,
@@ -549,17 +597,21 @@ def cmd_report(
 ) -> int:
     """Generate an evidence report."""
     repo_root = _find_repo_root(repo_root_override)
+    config = load_config(repo_root)
+    log_path = repo_root / config.evidence_log_path
+
+    if config.signing_enabled:
+        ok, reason = _verify_signed_chain(repo_root, config, log_path)
+        if not ok:
+            print("Report: REFUSED")
+            print(reason)
+            return 1
 
     if cmmc:
-        config = load_config(repo_root)
-        log_path = repo_root / config.evidence_log_path
         from sworn.evidence.cmmc_report import generate_cmmc_report
         report = generate_cmmc_report(log_path, config, output_format)
         print(report)
         return 0
-
-    config = load_config(repo_root)
-    log_path = repo_root / config.evidence_log_path
 
     report = generate_report(log_path, output_format, since)
     print(report)
@@ -651,46 +703,9 @@ def cmd_verify(repo_root_override: Path | None) -> int:
     repo_root = _find_repo_root(repo_root_override)
     config = load_config(repo_root)
     log_path = repo_root / config.evidence_log_path
-    require_signatures = config.signing_enabled
-
-    verify_key = None
-    verify_key_dir = None
-    pub_path = repo_root / config.signing_pub_path
-    if pub_path.exists():
-        try:
-            from sworn.evidence.signing import load_verify_key
-            if pub_path.is_dir():
-                pubs = list(pub_path.glob("*.pub"))
-                if pubs:
-                    verify_key_dir = pub_path
-                elif require_signatures:
-                    print("Chain: BROKEN")
-                    print("  Signing enabled but no public keys found")
-                    return 1
-            else:
-                verify_key = load_verify_key(pub_path)
-        except Exception as exc:
-            print("Chain: BROKEN")
-            print(f"  failed to verify signatures: {exc}")
-            return 1
-    elif require_signatures:
-        print("Chain: BROKEN")
-        print(
-            "  Signing enabled but public key path missing: "
-            f"{config.signing_pub_path}"
-        )
-        return 1
-
-    valid, msg = verify_chain(
-        log_path,
-        verify_key=verify_key,
-        verify_key_dir=verify_key_dir,
-        require_signatures=require_signatures,
-    )
-    status = chain_status(valid, msg)
-    print(f"Chain: {status}")
-    print(f"  {msg}")
-    return 0 if status == "VALID" else 1
+    ok, reason = _verify_signed_chain(repo_root, config, log_path)
+    print(reason)
+    return 0 if ok else 1
 
 
 def cmd_keygen(repo_root_override: Path | None) -> int:

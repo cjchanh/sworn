@@ -278,10 +278,11 @@ continuity for everything after it, and both `report` and `verify` surface that.
 
 ## B-5 — Report-path chain verification does not require signatures
 
-**Status:** Code-grounded. The live demonstration was not completed (see
-*Unverified in this pass*).
+**Status:** **CLOSED**. The report path now verifies signatures when signing is
+enabled and refuses on failure. Historical description of the prior behaviour
+is kept below.
 
-**What it is.** The report path verifies the chain with default arguments:
+**What it was.** The report path verified the chain with default arguments:
 
 - `src/sworn/evidence/report.py:52` — `chain_valid, chain_msg = verify_chain(log_path)`
 
@@ -293,17 +294,17 @@ parameter defaults to off:
   when `require_signatures` is set, or when a verify key was supplied *and* a
   signed entry has already been seen.
 
-The verify path does the opposite:
+The verify path did the opposite:
 
 - `src/sworn/cli.py:573` — `require_signatures = config.signing_enabled`
 - `src/sworn/cli.py:603-608` — that value is passed into `verify_chain`.
 
-**Why it exists.** Most plausibly because `generate_report` predates signed mode
+**Why it existed.** Most plausibly because `generate_report` predates signed mode
 and was never updated to take the config. The report function's signature
 (`log_path`, `output_format`, `since`) has no access to a `SwornConfig`, so it
 cannot know whether signing is enabled.
 
-**What an attacker can do inside it.** In a repository configured with
+**What an attacker could do inside it.** In a repository configured with
 `[signing] enabled = true`, strip signatures from evidence entries while keeping
 the hash chain intact. `sworn verify` fail-closes on this
 (`Line N: missing signature in signed log`). `sworn report` — which is the
@@ -312,17 +313,15 @@ chain as `VALID`, because it never asked about signatures. The two commands can
 therefore disagree about the same log, and the more presentable one is the more
 permissive one.
 
-**What mitigates it today.** `sworn verify` is the attestation command and is
-correct. The divergence only matters if `report` output is treated as evidence of
-signature validity, which no document currently claims it is.
+**What changed.** `cmd_report` now calls the same `_verify_signed_chain` helper
+as `cmd_verify` when `config.signing_enabled` is true, before generating any
+report. On failure it prints `Report: REFUSED` plus the same reason lines
+`cmd_verify` would print, emits no report body, and returns 1. A missing public
+key with signing enabled is a refusal, never a warning. When signing is
+disabled, `cmd_report` behaves as before.
 
-**Remediation options (no commitment, no dates).**
-
-1. Thread `SwornConfig` into `generate_report` and pass `require_signatures` and
-   the public-key path through to `verify_chain`, so both commands answer the
-   same question.
-2. Until then, have `report` label its integrity line as hash-chain-only, so
-   `VALID` is not read as "signatures checked".
+**What mitigates it today.** The shared helper. The two commands can no longer
+drift on key loading or `require_signatures`.
 
 ---
 

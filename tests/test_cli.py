@@ -9,6 +9,8 @@ from sworn.cli import (
     _find_repo_root,
     _get_staged_files,
     cmd_init,
+    cmd_keygen,
+    cmd_report,
     cmd_status,
     cmd_check,
     cmd_verify,
@@ -227,3 +229,106 @@ class TestCLI:
         captured = capsys.readouterr()
         assert result == 1
         assert "BROKEN" in captured.out
+
+    @requires_nacl
+    def test_report_signed_mode_valid_chain_succeeds(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        config_path = tmp_repo / ".sworn" / "config.toml"
+        config_path.write_text(
+            config_path.read_text() + "\n[signing]\nenabled = true\n"
+        )
+        assert cmd_keygen(tmp_repo) == 0
+        from sworn.config import load_config
+        from sworn.evidence.log import EvidenceEntry, append_entry
+        from sworn.evidence.signing import load_signing_key
+
+        config = load_config(tmp_repo)
+        sk = load_signing_key(tmp_repo / config.signing_key_path)
+        append_entry(
+            tmp_repo / config.evidence_log_path,
+            EvidenceEntry(
+                timestamp="2026-01-01T00:00:00Z",
+                actor="test",
+                tool=None,
+                files=["a.py"],
+                gates={"identity": "PASS"},
+                kernels=[],
+                decision="PASS",
+            ),
+            hash_chain=True,
+            signing_key=sk,
+        )
+        result = cmd_report(tmp_repo, "text", None, False)
+        captured = capsys.readouterr()
+        assert result == 0
+        assert "SWORN EVIDENCE REPORT" in captured.out
+
+    @requires_nacl
+    def test_report_signed_mode_tampered_refuses(self, tmp_repo: Path, capsys):
+        import json
+
+        cmd_init(tmp_repo)
+        config_path = tmp_repo / ".sworn" / "config.toml"
+        config_path.write_text(
+            config_path.read_text() + "\n[signing]\nenabled = true\n"
+        )
+        assert cmd_keygen(tmp_repo) == 0
+        from sworn.config import load_config
+        from sworn.evidence.log import EvidenceEntry, append_entry
+        from sworn.evidence.signing import load_signing_key
+
+        config = load_config(tmp_repo)
+        sk = load_signing_key(tmp_repo / config.signing_key_path)
+        log_path = tmp_repo / config.evidence_log_path
+        append_entry(
+            log_path,
+            EvidenceEntry(
+                timestamp="2026-01-01T00:00:00Z",
+                actor="test",
+                tool=None,
+                files=["a.py"],
+                gates={"identity": "PASS"},
+                kernels=[],
+                decision="PASS",
+            ),
+            hash_chain=True,
+            signing_key=sk,
+        )
+        lines = log_path.read_text().splitlines()
+        entry = json.loads(lines[0])
+        sig = entry["signature"]
+        entry["signature"] = ("0" if sig[0] != "0" else "1") + sig[1:]
+        log_path.write_text(
+            json.dumps(entry, separators=(",", ":"), sort_keys=True) + "\n"
+        )
+        result = cmd_report(tmp_repo, "text", None, False)
+        captured = capsys.readouterr()
+        assert result == 1
+        assert "Report: REFUSED" in captured.out
+        assert "SWORN EVIDENCE REPORT" not in captured.out
+
+    @requires_nacl
+    def test_report_signing_disabled_unchanged(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        from sworn.config import load_config
+        from sworn.evidence.log import EvidenceEntry, append_entry
+
+        config = load_config(tmp_repo)
+        append_entry(
+            tmp_repo / config.evidence_log_path,
+            EvidenceEntry(
+                timestamp="2026-01-01T00:00:00Z",
+                actor="test",
+                tool=None,
+                files=["a.py"],
+                gates={"identity": "PASS"},
+                kernels=[],
+                decision="PASS",
+            ),
+            hash_chain=True,
+        )
+        result = cmd_report(tmp_repo, "text", None, False)
+        captured = capsys.readouterr()
+        assert result == 0
+        assert "SWORN EVIDENCE REPORT" in captured.out
+        assert "Report: REFUSED" not in captured.out

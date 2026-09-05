@@ -54,9 +54,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: CentennialDefenseSystemsInc/sworn@0.4.0
+      - uses: cjchanh/sworn@0.4.1
         with:
-          version: "0.4.0"
+          version: "0.4.1"
 ```
 
 Make the resulting job a required status check before merge.

@@ -28,7 +28,7 @@ produces auditable evidence for compliance programs.
 
 - It solves ambiguous AI-code governance by enforcing explicit, deterministic rules.
 - It guarantees fail-closed behavior on signature, hashing, and CI enforcement failures.
-- It provides compliance-support reporting (CMMC-focused in 0.4.0).
+- It provides compliance-support reporting (CMMC-focused in 0.4.1).
 - It does not certify compliance, replace a C3PAO, or provide a PKI/identity trust service.
 - Engineering value: predictable commit outcomes, stronger evidence retention, and simpler policy enforcement.
 - Security value: tamper-evident logs, strict fail-closed semantics, and scoped threat assumptions.
