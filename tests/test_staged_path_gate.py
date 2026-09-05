@@ -1,6 +1,7 @@
 """Staged-path gate: index is truth, symlink targets, confusable names."""
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import re
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from sworn.cli import (
+    _get_pr_diff_files,
     _get_staged_files,
     _git_z,
     _intent_to_add_paths,
@@ -212,7 +214,7 @@ class TestRound2Findings:
         entry = json.loads(log.read_text().splitlines()[-1])
         assert entry["decision"] == "BLOCKED"
         assert "allowlist" in entry["gates"]
-        assert entry["gates"]["allowlist"] == "BLOCKED"
+        assert entry["gates"]["allowlist"] == "SKIP"  # pipeline never ran: refused at the path gate
         assert "SWORN BLOCKED" in output
 
     def test_s3_get_staged_files_docstring_names_porcelain_v2(self):
@@ -318,3 +320,159 @@ class TestRound3Findings:
         assert result == 1
         assert "SWORN BLOCKED" in output
         assert "Actor:" in output
+
+
+class TestR1Findings:
+    def test_s1_nfkc_symlink_dir_target_without_slash_blocks(
+        self, tmp_repo: Path, capsys
+    ):
+        cmd_init(tmp_repo)
+        fullwidth_secrets = "\uff53\uff45\uff43\uff52\uff45\uff54\uff53"
+        _stage_symlink(tmp_repo, "safe-link", fullwidth_secrets)
+        result = cmd_check(tmp_repo)
+        output = _captured(capsys)
+        assert result == 1
+        assert "SWORN BLOCKED" in output
+        assert "nfkc" in output
+
+    def test_s2_hard_block_runs_pipeline_and_writes_evidence(
+        self, tmp_repo: Path, capsys
+    ):
+        _enable_protected_pattern(tmp_repo)
+        config_path = tmp_repo / ".sworn" / "config.toml"
+        text = config_path.read_text()
+        config_path.write_text(
+            text.replace("files = []", 'files = ["src/*"]', 1)
+        )
+        _stage_symlink(tmp_repo, "safe-link", "../../etc/x")
+        result = cmd_check(tmp_repo)
+        output = _captured(capsys)
+        assert result == 1
+        assert "symlink-escapes-repo" in output
+        log = tmp_repo / ".sworn" / "evidence.jsonl"
+        assert log.is_file()
+        entry = json.loads(log.read_text().splitlines()[-1])
+        assert entry["decision"] == "BLOCKED"
+        assert "allowlist" in entry["gates"]
+        assert entry["gates"]["allowlist"] == "SKIP"  # pipeline never ran: refused at the path gate
+
+    def test_s3_nfkc_path_dir_style_slash_blocks(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        fullwidth_secrets = "\uff53\uff45\uff43\uff52\uff45\uff54\uff53"
+        (tmp_repo / fullwidth_secrets).write_text("token")
+        _git(tmp_repo, "add", "--", fullwidth_secrets)
+        result = cmd_check(tmp_repo)
+        output = _captured(capsys)
+        assert result == 1
+        assert "nfkc" in output
+
+    def test_s3_pr_diff_timeout_does_not_fall_through(
+        self, tmp_repo: Path, monkeypatch
+    ):
+        monkeypatch.delenv("SWORN_CI", raising=False)
+        monkeypatch.delenv("SWORN_BASE_SHA", raising=False)
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        diff_calls = {"n": 0}
+
+        def fake_run(cmd, *args, **kwargs):
+            if isinstance(cmd, list) and cmd and cmd[0] == "git" and "diff" in cmd:
+                diff_calls["n"] += 1
+                if diff_calls["n"] == 1:
+                    raise subprocess.TimeoutExpired(cmd, 10)
+                return subprocess.CompletedProcess(cmd, 0, stdout="ok.py\0", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr("sworn.cli.subprocess.run", fake_run)
+        with pytest.raises(RuntimeError, match="timed out"):
+            _get_pr_diff_files(tmp_repo, "main")
+
+    def test_s3_pr_diff_decode_error_does_not_fall_through(
+        self, tmp_repo: Path, monkeypatch
+    ):
+        monkeypatch.delenv("SWORN_CI", raising=False)
+        monkeypatch.delenv("SWORN_BASE_SHA", raising=False)
+        monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+        diff_calls = {"n": 0}
+
+        def fake_run(cmd, *args, **kwargs):
+            if isinstance(cmd, list) and cmd and cmd[0] == "git" and "diff" in cmd:
+                diff_calls["n"] += 1
+                if diff_calls["n"] == 1:
+                    raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")
+                return subprocess.CompletedProcess(cmd, 0, stdout="ok.py\0", stderr="")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        monkeypatch.setattr("sworn.cli.subprocess.run", fake_run)
+        with pytest.raises(RuntimeError, match="failed"):
+            _get_pr_diff_files(tmp_repo, "main")
+
+
+class TestR2Findings:
+    def test_s1_confusable_file_without_slash_blocks(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        name = "se\u0441rets"
+        (tmp_repo / name).write_text("token")
+        _git(tmp_repo, "add", "--", name)
+        result = cmd_check(tmp_repo)
+        output = _captured(capsys)
+        assert result == 1
+        assert "confusable-folded" in output
+        assert name in output or "secrets" in output
+
+    def test_s1_confusable_private_file_without_slash_blocks(
+        self, tmp_repo: Path, capsys
+    ):
+        cmd_init(tmp_repo)
+        name = "\u0440rivate"
+        (tmp_repo / name).write_text("token")
+        _git(tmp_repo, "add", "--", name)
+        result = cmd_check(tmp_repo)
+        output = _captured(capsys)
+        assert result == 1
+        assert "confusable-folded" in output
+
+    def test_s2_hard_block_stock_config_evidence_is_blocked_not_pass(
+        self, tmp_repo: Path, capsys
+    ):
+        cmd_init(tmp_repo)
+        _stage_symlink(tmp_repo, "safe-link", "../../etc/x")
+        result = cmd_check(tmp_repo)
+        output = _captured(capsys)
+        assert result == 1
+        assert "symlink-escapes-repo" in output
+        log = tmp_repo / ".sworn" / "evidence.jsonl"
+        assert log.is_file()
+        entries = [
+            json.loads(line) for line in log.read_text().splitlines() if line.strip()
+        ]
+        assert entries
+        assert all(entry["decision"] != "PASS" for entry in entries)
+        assert entries[-1]["decision"] == "BLOCKED"
+        assert "symlink-escapes-repo" in entries[-1]["reason"]
+
+    def test_s3_evaluate_never_raises_path_gate_blocked(self, tmp_repo: Path):
+        cmd_init(tmp_repo)
+        _stage_symlink(tmp_repo, "safe-link", "../../etc/x")
+        config = load_config(tmp_repo)
+        files, reason = evaluate_path_gate_candidates(
+            tmp_repo,
+            ["safe-link", "missing-from-index"],
+            config.security_patterns,
+        )
+        assert "safe-link" in files
+        assert reason is not None
+        assert "symlink-escapes-repo" in reason or "index-unreadable" in reason
+
+    def test_s3_cmd_check_has_no_dead_path_gate_except(self):
+        assert "except PathGateBlocked" not in inspect.getsource(cmd_check)
+        assert "except PathGateBlocked" not in inspect.getsource(cmd_ci_check)
+
+    def test_s3_mixed_fullwidth_and_cyrillic_blocks(self, tmp_repo: Path, capsys):
+        cmd_init(tmp_repo)
+        name = "\uff53\uff45\u0441\uff52\uff45\uff54\uff53"
+        (tmp_repo / name).write_text("token")
+        _git(tmp_repo, "add", "--", name)
+        result = cmd_check(tmp_repo)
+        output = _captured(capsys)
+        assert result == 1
+        assert "confusable-folded" in output

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import posixpath
 import re
@@ -319,8 +320,12 @@ def _is_zero_oid(oid: str) -> bool:
     return oid == "0" * 40 or oid == "0" * 64
 
 
-def _print_blocked(reason: str, result: object | None = None) -> int:
+def _print_blocked(
+    reason: str, result: object | None = None, *, actor: str | None = None
+) -> int:
     print(f"SWORN BLOCKED — {reason}")
+    if actor and result is None:
+        print(f"  Actor: {actor}")
     if result is not None:
         print(f"  Actor: {getattr(result, 'actor', '')}")
         tool = getattr(result, "tool", None)
@@ -330,6 +335,58 @@ def _print_blocked(reason: str, result: object | None = None) -> int:
             if status == "BLOCKED":
                 print(f"  Gate: {gate} → BLOCKED")
     return 1
+
+
+def _path_gate_hard_block(reason: str | None) -> bool:
+    if not reason:
+        return False
+    return reason.startswith("symlink-escapes-repo") or reason.startswith(
+        "index-unreadable"
+    )
+
+
+def _write_hard_block_evidence(
+    repo_root: Path,
+    config: SwornConfig,
+    files: list[str],
+    reason: str,
+) -> str:
+    """Append one BLOCKED entry for a path-gate refusal; return the actor."""
+    from sworn.evidence.log import EvidenceEntry, _now, append_entry
+    from sworn.gates.identity import evaluate_identity
+
+    identity = evaluate_identity(config.identity_env_vars, repo_root)
+    entry = EvidenceEntry(
+        timestamp=_now(),
+        actor=identity.actor,
+        tool=identity.tool,
+        files=files,
+        # Stages that did not run are SKIP, never PASS: the path gate refused
+        # before the pipeline, so only identity (evaluated here) and security
+        # (the refusal itself) carry a verdict.
+        gates={
+            "identity": "PASS",
+            "security": "BLOCKED",
+            "allowlist": "SKIP",
+            "signing": "SKIP",
+            "kernels": "SKIP",
+        },
+        kernels=[],
+        decision="BLOCKED",
+        reason=reason,
+    )
+    try:
+        append_entry(
+            repo_root / config.evidence_log_path,
+            entry,
+            config.evidence_hash_chain,
+        )
+    except Exception as exc:  # the refusal stands; say the record did not land
+        print(
+            f"SWORN WARNING — blocked, but the evidence entry could not be appended: {exc}",
+            file=sys.stderr,
+        )
+    return identity.actor
 
 
 def cmd_check(repo_root_override: Path | None) -> int:
@@ -343,15 +400,13 @@ def cmd_check(repo_root_override: Path | None) -> int:
         return 1
 
     pattern_reason = None
+    files: list[str] = []
     try:
         files = _get_staged_files(repo_root)
         if files:
             files, pattern_reason = evaluate_path_gate_candidates(
                 repo_root, files, config.security_patterns
             )
-    except PathGateBlocked as exc:
-        print(f"SWORN BLOCKED — {exc}")
-        return 1
     except RuntimeError as exc:
         print(
             f"SWORN BLOCKED — unable to determine staged files: {exc}",
@@ -359,12 +414,18 @@ def cmd_check(repo_root_override: Path | None) -> int:
         )
         return 1
     if not files:
+        if pattern_reason:
+            print(f"SWORN BLOCKED — {pattern_reason}")
+            return 1
         return 0  # Nothing staged, nothing to gate
 
-    result = run_pipeline(repo_root, files, config)
-
     if pattern_reason:
-        return _print_blocked(pattern_reason, result)
+        # A path-gate hit is a pre-pipeline refusal: the pipeline never runs, so
+        # it can never write a PASS entry that the CLI then has to contradict.
+        actor = _write_hard_block_evidence(repo_root, config, files, pattern_reason)
+        return _print_blocked(pattern_reason, actor=actor)
+
+    result = run_pipeline(repo_root, files, config)
 
     if result.decision == "PASS":
         print(f"SWORN PASS — {len(files)} file(s) gated")
@@ -552,10 +613,9 @@ def evaluate_path_gate_candidates(
     block reason instead of raising so callers still run the pipeline; the
     matching variant is included only when it differs from the staged path so
     the security stage still records the block. Index/symlink probes are
-    skipped once a pattern reason is set. ``PathGateBlocked``
-    (``index-unreadable``, ``symlink-escapes-repo``) is deferred per path and
-    raised only when no pattern hit occurred, so mixed staging still runs the
-    pipeline.
+    skipped once a pattern reason is set. ``index-unreadable`` and
+    ``symlink-escapes-repo`` become a block reason the same way, so callers
+    still run the pipeline and write evidence.
     """
     originals: list[str] = []
     seen: set[str] = set()
@@ -583,9 +643,14 @@ def evaluate_path_gate_candidates(
 
     for path in paths:
         add_original(path)
+        nfkc_path = unicodedata.normalize("NFKC", path)
         consider(path, path, "raw")
-        consider(path, unicodedata.normalize("NFKC", path), "nfkc")
+        consider(path, nfkc_path, "nfkc")
+        consider(path, nfkc_path + "/", "nfkc")
         consider(path, fold_confusables(path), "confusable-folded")
+        consider(path, fold_confusables(path) + "/", "confusable-folded")
+        consider(path, fold_confusables(nfkc_path), "confusable-folded")
+        consider(path, fold_confusables(nfkc_path) + "/", "confusable-folded")
         collapsed = posixpath.normpath(path)
         consider(path, collapsed, "collapsed")
         if pattern_reason is not None:
@@ -600,8 +665,15 @@ def evaluate_path_gate_candidates(
             if _is_zero_oid(sha):
                 raise PathGateBlocked(f"index-unreadable: {path}")
             target = _symlink_blob_target(repo_root, sha, path)
+            nfkc_target = unicodedata.normalize("NFKC", target)
             consider(path, target, "symlink-target")
             consider(path, target + "/", "symlink-target")
+            consider(path, nfkc_target, "nfkc")
+            consider(path, nfkc_target + "/", "nfkc")
+            consider(path, fold_confusables(target), "confusable-folded")
+            consider(path, fold_confusables(target) + "/", "confusable-folded")
+            consider(path, fold_confusables(nfkc_target), "confusable-folded")
+            consider(path, fold_confusables(nfkc_target) + "/", "confusable-folded")
             joined = posixpath.normpath(
                 posixpath.join(posixpath.dirname(path), target)
             )
@@ -609,11 +681,16 @@ def evaluate_path_gate_candidates(
                 raise PathGateBlocked(
                     f"symlink-escapes-repo: {path} -> {target}"
                 )
+            nfkc_joined = unicodedata.normalize("NFKC", joined)
+            folded_joined = fold_confusables(joined)
             consider(path, joined, "symlink-target")
             consider(path, joined + "/", "symlink-target")
-            consider(path, unicodedata.normalize("NFKC", joined), "nfkc")
-            consider(path, fold_confusables(joined), "confusable-folded")
-            consider(path, fold_confusables(joined) + "/", "confusable-folded")
+            consider(path, nfkc_joined, "nfkc")
+            consider(path, nfkc_joined + "/", "nfkc")
+            consider(path, folded_joined, "confusable-folded")
+            consider(path, folded_joined + "/", "confusable-folded")
+            consider(path, fold_confusables(nfkc_joined), "confusable-folded")
+            consider(path, fold_confusables(nfkc_joined) + "/", "confusable-folded")
         except PathGateBlocked as exc:
             hard_block = exc
             continue
@@ -622,7 +699,7 @@ def evaluate_path_gate_candidates(
     if pattern_reason is not None:
         return originals, pattern_reason
     if hard_block is not None:
-        raise hard_block
+        return originals, str(hard_block)
     return originals, None
 
 
@@ -697,27 +774,26 @@ def _get_pr_diff_files(repo_root: Path, base_ref: str | None = None) -> list[str
 
     for ref in refs:
         try:
-            result = subprocess.run(
+            out = _git_z(
+                repo_root,
                 [
-                    "git",
-                    "-c",
-                    "core.quotepath=false",
                     "diff",
                     "--name-only",
                     "-z",
                     f"--diff-filter={_DIFF_FILTER}",
                     f"{ref}...HEAD",
                 ],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                cwd=repo_root,
-                timeout=10,
+                probe="git pr-diff probe",
             )
-            if result.returncode == 0:
-                return _nul_split(result.stdout)
-        except Exception:
+        except RuntimeError as exc:
+            cause = exc.__cause__
+            if isinstance(
+                cause,
+                (subprocess.TimeoutExpired, OSError, UnicodeDecodeError),
+            ):
+                raise
             continue
+        return _nul_split(out)
 
     raise DiffBaseUnresolved(
         f"Failed to compute diff against base {base_ref!r} "
@@ -762,15 +838,13 @@ def cmd_ci_check(
         return 1
 
     pattern_reason = None
+    files: list[str] = []
     try:
         files = _get_pr_diff_files(repo_root, base_ref)
         if files:
             files, pattern_reason = evaluate_path_gate_candidates(
                 repo_root, files, config.security_patterns
             )
-    except PathGateBlocked as exc:
-        print(f"SWORN BLOCKED — {exc}")
-        return 1
     except DiffBaseUnresolved as exc:
         if advisory:
             print(ADVISORY_BANNER.format(reason=exc), file=sys.stderr)
@@ -781,13 +855,19 @@ def cmd_ci_check(
         print(f"SWORN BLOCKED — {exc}", file=sys.stderr)
         return 1
     if not files:
+        if pattern_reason:
+            print(f"SWORN BLOCKED — {pattern_reason}")
+            return 1
         print("SWORN PASS — no files in diff")
         return 0
 
-    result = run_pipeline(repo_root, files, config)
-
     if pattern_reason:
-        return _print_blocked(pattern_reason, result)
+        # A path-gate hit is a pre-pipeline refusal: the pipeline never runs, so
+        # it can never write a PASS entry that the CLI then has to contradict.
+        actor = _write_hard_block_evidence(repo_root, config, files, pattern_reason)
+        return _print_blocked(pattern_reason, actor=actor)
+
+    result = run_pipeline(repo_root, files, config)
 
     if result.decision == "PASS":
         print(f"SWORN PASS — {len(files)} file(s) gated (CI)")
