@@ -3,15 +3,24 @@ from __future__ import annotations
 
 import argparse
 import os
+import posixpath
+import re
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 from sworn import __version__
-from sworn.config import CONFIG_TEMPLATE, SwornConfig, load_config
+from sworn.config import CONFIG_TEMPLATE, SwornConfig, fold_confusables, load_config
 from sworn.evidence.log import chain_status, read_entries, verify_chain
 from sworn.evidence.report import generate_report
 from sworn.pipeline import run_pipeline
+
+_SYMLINK_MODE = "120000"
+_DIFF_FILTER = "ACMRTUXB"
+_LS_FILES_RECORD = re.compile(
+    r"^([0-7]{6}) ([0-9a-f]{40}|[0-9a-f]{64}) ([0-3])\t(.*)$"
+)
 
 
 _KEY_GITIGNORE_PATTERNS = (
@@ -306,6 +315,23 @@ def cmd_init(repo_root_override: Path | None) -> int:
     return 0
 
 
+def _is_zero_oid(oid: str) -> bool:
+    return oid == "0" * 40 or oid == "0" * 64
+
+
+def _print_blocked(reason: str, result: object | None = None) -> int:
+    print(f"SWORN BLOCKED — {reason}")
+    if result is not None:
+        print(f"  Actor: {getattr(result, 'actor', '')}")
+        tool = getattr(result, "tool", None)
+        if tool:
+            print(f"  Tool: {tool}")
+        for gate, status in (getattr(result, "gate_results", None) or {}).items():
+            if status == "BLOCKED":
+                print(f"  Gate: {gate} → BLOCKED")
+    return 1
+
+
 def cmd_check(repo_root_override: Path | None) -> int:
     """Run the gate pipeline on staged files."""
     repo_root = _find_repo_root(repo_root_override)
@@ -316,9 +342,16 @@ def cmd_check(repo_root_override: Path | None) -> int:
         print(f"Config error: {exc}", file=sys.stderr)
         return 1
 
-    # Get staged files
+    pattern_reason = None
     try:
         files = _get_staged_files(repo_root)
+        if files:
+            files, pattern_reason = evaluate_path_gate_candidates(
+                repo_root, files, config.security_patterns
+            )
+    except PathGateBlocked as exc:
+        print(f"SWORN BLOCKED — {exc}")
+        return 1
     except RuntimeError as exc:
         print(
             f"SWORN BLOCKED — unable to determine staged files: {exc}",
@@ -330,25 +363,64 @@ def cmd_check(repo_root_override: Path | None) -> int:
 
     result = run_pipeline(repo_root, files, config)
 
+    if pattern_reason:
+        return _print_blocked(pattern_reason, result)
+
     if result.decision == "PASS":
         print(f"SWORN PASS — {len(files)} file(s) gated")
         if result.tool:
             print(f"  Tool: {result.tool}")
         return 0
 
-    # BLOCKED
-    print(f"SWORN BLOCKED — {result.reason}")
-    print(f"  Actor: {result.actor}")
-    if result.tool:
-        print(f"  Tool: {result.tool}")
-    for gate, status in result.gate_results.items():
-        if status == "BLOCKED":
-            print(f"  Gate: {gate} → BLOCKED")
-    return 1
+    return _print_blocked(result.reason, result)
+
+
+def _nul_split(payload: str) -> list[str]:
+    return [part for part in payload.split("\0") if part]
+
+
+def _git_z(
+    repo_root: Path,
+    args: list[str],
+    *,
+    timeout: int = 10,
+    probe: str = "git probe",
+) -> str:
+    """Run git with quotepath off and NUL-safe stdout. timeout/OSError -> RuntimeError."""
+    try:
+        result = subprocess.run(
+            ["git", "-c", "core.quotepath=false", *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{probe} timed out after {exc.timeout}s") from exc
+    except OSError as exc:
+        raise RuntimeError(f"{probe} failed: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"{probe} failed: {exc}") from exc
+    if result.returncode != 0:
+        detail = next(
+            (line for line in result.stderr.splitlines() if line.strip()), ""
+        )
+        raise RuntimeError(
+            detail.strip() or f"{probe} exited {result.returncode}"
+        )
+    return result.stdout
 
 
 def _get_staged_files(repo_root: Path) -> list[str]:
     """Get list of staged files via git.
+
+    Candidate set is ``git diff --cached --name-only -z --diff-filter=ACMRTUXB``
+    plus intent-to-add entries from ``git status --porcelain=v2 -z`` rows
+    whose index status contains ``A`` and whose index blob is an all-zero
+    OID (40 hex on SHA-1 repos, 64 hex on SHA-256 repos).
+    ``git diff --cached --diff-filter=A`` misses those. Deletions (D)
+    stay excluded.
 
     A failed probe is never an empty staging area: callers must not be able to
     confuse "git could not answer" with "nothing is staged".
@@ -357,31 +429,201 @@ def _get_staged_files(repo_root: Path) -> list[str]:
         RuntimeError: the git probe timed out, could not be executed, or exited
             non-zero.
     """
+    out = _git_z(
+        repo_root,
+        [
+            "diff",
+            "--cached",
+            "--name-only",
+            "-z",
+            f"--diff-filter={_DIFF_FILTER}",
+        ],
+        probe="git staged-file probe",
+    )
+    files = _nul_split(out)
+    seen = set(files)
+    for path in _intent_to_add_paths(repo_root):
+        if path not in seen:
+            seen.add(path)
+            files.append(path)
+    return files
+
+
+def _intent_to_add_paths(repo_root: Path) -> list[str]:
+    """Intent-to-add paths from ``git status --porcelain=v2 -z``.
+
+    ``git diff --cached --diff-filter=A`` misses ``git add -N``. This Git
+    emits porcelain v2 ``1 .A`` with an all-zero index blob (not an all-zero
+    ``ls-files -s`` OID — that field is the empty blob). Rows whose status
+    contains ``A`` and whose index blob is the all-zero OID are included.
+    """
+    out = _git_z(
+        repo_root,
+        ["status", "--porcelain=v2", "-z"],
+        probe="git staged-file probe",
+    )
+    paths: list[str] = []
+    records = _nul_split(out)
+    idx = 0
+    while idx < len(records):
+        rec = records[idx]
+        idx += 1
+        if rec.startswith("2 "):
+            if idx < len(records):
+                idx += 1
+            continue
+        if not rec.startswith("1 "):
+            continue
+        parts = rec.split(" ", 8)
+        if len(parts) < 9:
+            continue
+        _one, xy, _sub, _mh, _mi, _mw, _hh, index_blob, path = parts
+        if "A" not in xy:
+            continue
+        if _is_zero_oid(index_blob):
+            paths.append(path)
+    return paths
+
+
+class PathGateBlocked(Exception):
+    """Fail-closed path-gate verdict (index-unreadable, symlink-escapes-repo)."""
+
+
+def _parse_ls_files_record(record: str) -> tuple[str, str, str, str] | None:
+    match = _LS_FILES_RECORD.match(record)
+    if match is None:
+        return None
+    return match.group(1), match.group(2), match.group(3), match.group(4)
+
+
+def _lexical_escapes(path: str) -> bool:
+    normalised = posixpath.normpath(path)
+    return posixpath.isabs(normalised) or normalised == ".." or normalised.startswith("../")
+
+
+def _index_record(repo_root: Path, path: str) -> tuple[str, str]:
+    """Return (mode, sha) from the index. Pathspec is literal; worktree is ignored."""
+    out = _git_z(
+        repo_root,
+        ["ls-files", "-s", "-z", "--", f":(literal){path}"],
+        probe="git index probe",
+    )
+    matches: list[tuple[str, str, str, str]] = []
+    for record in _nul_split(out):
+        parsed = _parse_ls_files_record(record)
+        if parsed is not None and parsed[3] == path:
+            matches.append(parsed)
+    if not matches:
+        raise PathGateBlocked(f"index-unreadable: {path}")
+    for mode, sha, stage, _name in matches:
+        if stage == "0":
+            return mode, sha
+    return matches[0][0], matches[0][1]
+
+
+def _symlink_blob_target(repo_root: Path, sha: str, raw_path: str) -> str:
     try:
-        result = subprocess.run(
-            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-            capture_output=True,
-            text=True,
-            cwd=repo_root,
-            timeout=10,
+        blob = _git_z(
+            repo_root,
+            ["cat-file", "-p", sha],
+            probe="git index probe",
         )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(
-            f"git staged-file probe timed out after {exc.timeout}s"
-        ) from exc
-    except OSError as exc:
-        raise RuntimeError(f"git staged-file probe failed: {exc}") from exc
+    except RuntimeError as exc:
+        raise PathGateBlocked(f"index-unreadable: {raw_path}") from exc
+    if blob.endswith("\n"):
+        blob = blob[:-1]
+    return blob
 
-    if result.returncode != 0:
-        # git can emit a full usage dump on stderr; the first line is the error.
-        detail = next(
-            (line for line in result.stderr.splitlines() if line.strip()), ""
-        )
-        raise RuntimeError(
-            detail.strip() or f"git staged-file probe exited {result.returncode}"
-        )
 
-    return [f for f in result.stdout.strip().split("\n") if f]
+def evaluate_path_gate_candidates(
+    repo_root: Path,
+    paths: list[str],
+    patterns: list[re.Pattern[str]] | None = None,
+) -> tuple[list[str], str | None]:
+    """Return evaluated candidates for both ``check`` and ``ci-check``.
+
+    The staged object is the truth: mode and blob come from the index via
+    ``git ls-files -s -z -- ":(literal)<path>"``. The returned path must equal
+    ``<path>`` exactly. Worktree ``Path.resolve`` / ``is_symlink`` / ``is_dir``
+    / ``exists`` are never used for policy.
+
+    Variants (NFKC, confusable-folded, collapsed, symlink targets) are matched
+    locally. Non-matching variants are not returned. A pattern hit returns a
+    block reason instead of raising so callers still run the pipeline; the
+    matching variant is included only when it differs from the staged path so
+    the security stage still records the block. Index/symlink probes are
+    skipped once a pattern reason is set. ``PathGateBlocked``
+    (``index-unreadable``, ``symlink-escapes-repo``) is deferred per path and
+    raised only when no pattern hit occurred, so mixed staging still runs the
+    pipeline.
+    """
+    originals: list[str] = []
+    seen: set[str] = set()
+    compiled = patterns or []
+    pattern_reason: str | None = None
+    match_variant: str | None = None
+    hard_block: PathGateBlocked | None = None
+
+    def add_original(item: str) -> None:
+        if item and item not in seen:
+            seen.add(item)
+            originals.append(item)
+
+    def consider(raw: str, variant: str, kind: str) -> None:
+        nonlocal pattern_reason, match_variant
+        if pattern_reason is not None:
+            return
+        for pattern in compiled:
+            if pattern.search(variant):
+                pattern_reason = (
+                    f"Security surface: {raw} (variant: {kind} {variant})"
+                )
+                match_variant = variant
+                return
+
+    for path in paths:
+        add_original(path)
+        consider(path, path, "raw")
+        consider(path, unicodedata.normalize("NFKC", path), "nfkc")
+        consider(path, fold_confusables(path), "confusable-folded")
+        collapsed = posixpath.normpath(path)
+        consider(path, collapsed, "collapsed")
+        if pattern_reason is not None:
+            continue
+        if _lexical_escapes(collapsed):
+            hard_block = PathGateBlocked(f"symlink-escapes-repo: {path}")
+            continue
+        try:
+            mode, sha = _index_record(repo_root, path)
+            if mode != _SYMLINK_MODE:
+                continue
+            if _is_zero_oid(sha):
+                raise PathGateBlocked(f"index-unreadable: {path}")
+            target = _symlink_blob_target(repo_root, sha, path)
+            consider(path, target, "symlink-target")
+            consider(path, target + "/", "symlink-target")
+            joined = posixpath.normpath(
+                posixpath.join(posixpath.dirname(path), target)
+            )
+            if _lexical_escapes(joined):
+                raise PathGateBlocked(
+                    f"symlink-escapes-repo: {path} -> {target}"
+                )
+            consider(path, joined, "symlink-target")
+            consider(path, joined + "/", "symlink-target")
+            consider(path, unicodedata.normalize("NFKC", joined), "nfkc")
+            consider(path, fold_confusables(joined), "confusable-folded")
+            consider(path, fold_confusables(joined) + "/", "confusable-folded")
+        except PathGateBlocked as exc:
+            hard_block = exc
+            continue
+    if match_variant and match_variant not in seen:
+        originals.append(match_variant)
+    if pattern_reason is not None:
+        return originals, pattern_reason
+    if hard_block is not None:
+        raise hard_block
+    return originals, None
 
 
 class DiffBaseUnresolved(RuntimeError):
@@ -457,17 +699,23 @@ def _get_pr_diff_files(repo_root: Path, base_ref: str | None = None) -> list[str
         try:
             result = subprocess.run(
                 [
-                    "git", "diff", "--name-only", "--diff-filter=ACMR",
+                    "git",
+                    "-c",
+                    "core.quotepath=false",
+                    "diff",
+                    "--name-only",
+                    "-z",
+                    f"--diff-filter={_DIFF_FILTER}",
                     f"{ref}...HEAD",
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 cwd=repo_root,
                 timeout=10,
             )
             if result.returncode == 0:
-                files = [f for f in result.stdout.strip().split("\n") if f]
-                return files
+                return _nul_split(result.stdout)
         except Exception:
             continue
 
@@ -513,8 +761,16 @@ def cmd_ci_check(
         print(f"Config error: {exc}", file=sys.stderr)
         return 1
 
+    pattern_reason = None
     try:
         files = _get_pr_diff_files(repo_root, base_ref)
+        if files:
+            files, pattern_reason = evaluate_path_gate_candidates(
+                repo_root, files, config.security_patterns
+            )
+    except PathGateBlocked as exc:
+        print(f"SWORN BLOCKED — {exc}")
+        return 1
     except DiffBaseUnresolved as exc:
         if advisory:
             print(ADVISORY_BANNER.format(reason=exc), file=sys.stderr)
@@ -529,6 +785,9 @@ def cmd_ci_check(
         return 0
 
     result = run_pipeline(repo_root, files, config)
+
+    if pattern_reason:
+        return _print_blocked(pattern_reason, result)
 
     if result.decision == "PASS":
         print(f"SWORN PASS — {len(files)} file(s) gated (CI)")

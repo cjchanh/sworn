@@ -85,7 +85,10 @@ Sworn runs a 5-stage gate pipeline during local commit checks and CI diff checks
 1. **Identity** — Records actor (gated repo `git config user.name`) and AI
    tool from environment. This stage **never blocks**. Unresolved actor is
    blocked only when the opt-in CMMC AC kernel is enabled.
-2. **Security** — Blocks commits touching sensitive paths (configurable)
+2. **Security** — Blocks commits touching sensitive paths (configurable):
+   path patterns only (raw, Unicode-normalised, confusable-folded,
+   collapsed, symlink targets); contents are not scanned. Also blocks
+   `index-unreadable` and `symlink-escapes-repo`.
 3. **Allowlist** — Enforces file access control when configured (still
    evaluated after a prior block so evidence is complete)
 4. **Signing** — Fail-closed when signing is enabled (missing/legacy key,

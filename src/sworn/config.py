@@ -24,6 +24,68 @@ DEFAULT_SECURITY_PATTERNS: list[str] = [
     r"(^|/)private/",
 ]
 
+# Cyrillic/Greek look-alikes -> Latin. Explicit table, no Unicode dependency
+# beyond str.maketrans. Applied as a path-gate variant, never as a filesystem
+# probe.
+CONFUSABLE_FOLD = str.maketrans(
+    {
+        "\u0430": "a",
+        "\u0435": "e",
+        "\u043e": "o",
+        "\u0440": "p",
+        "\u0441": "c",
+        "\u0443": "y",
+        "\u0445": "x",
+        "\u0456": "i",
+        "\u0455": "s",
+        "\u04cf": "l",
+        "\u0501": "d",
+        "\u0458": "j",
+        "\u0410": "A",
+        "\u0415": "E",
+        "\u041e": "O",
+        "\u0420": "P",
+        "\u0421": "C",
+        "\u0423": "Y",
+        "\u0425": "X",
+        "\u0406": "I",
+        "\u0405": "S",
+        "\u04c0": "I",
+        "\u03b1": "a",
+        "\u03b5": "e",
+        "\u03bf": "o",
+        "\u03c1": "p",
+        "\u03c4": "t",
+        "\u03c5": "y",
+        "\u03c7": "x",
+        "\u03bd": "v",
+        "\u03b9": "i",
+        "\u03ba": "k",
+        "\u03bc": "m",
+        "\u03c3": "s",
+        "\u03c2": "s",
+        "\u03b7": "n",
+        "\u0391": "A",
+        "\u0395": "E",
+        "\u039f": "O",
+        "\u03a1": "P",
+        "\u03a4": "T",
+        "\u03a5": "Y",
+        "\u03a7": "X",
+        "\u039d": "N",
+        "\u0399": "I",
+        "\u039a": "K",
+        "\u039c": "M",
+        "\u03a3": "S",
+        "\u0397": "H",
+    }
+)
+
+
+def fold_confusables(value: str) -> str:
+    """Fold Cyrillic/Greek look-alikes to Latin. Pure string table."""
+    return value.translate(CONFUSABLE_FOLD)
+
 CONFIG_TEMPLATE = """\
 # Sworn configuration
 # Docs: https://github.com/cjchanh/sworn/blob/main/docs/config.md

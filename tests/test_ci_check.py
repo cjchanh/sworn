@@ -90,12 +90,12 @@ class TestCICheck:
         assert any(
             "abcdef1234567890abcdef1234567890abcdef12...HEAD" in " ".join(call)
             for call in calls
-            if call[:2] == ["git", "diff"]
+            if call and call[0] == "git" and "diff" in call
         )
         assert not any(
             f"origin/abcdef1234567890abcdef1234567890abcdef12" in " ".join(call)
             for call in calls
-            if call[:2] == ["git", "diff"]
+            if call and call[0] == "git" and "diff" in call
         )
 
     def test_threat_ci_fallback_chain(self, tmp_repo: Path):
@@ -108,7 +108,7 @@ class TestCICheck:
             if isinstance(cmd, list) and cmd[0] == "git":
                 calls.append(cmd)
 
-            if cmd[:2] == ["git", "diff"]:
+            if isinstance(cmd, list) and cmd and cmd[0] == "git" and "diff" in cmd:
                 diff_calls += 1
                 if diff_calls == 1:
                     return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
@@ -124,7 +124,7 @@ class TestCICheck:
         diff_refs = [
             " ".join(call)
             for call in calls
-            if call[:2] == ["git", "diff"]
+            if call and call[0] == "git" and "diff" in call
         ]
         assert any("origin/main...HEAD" in ref for ref in diff_refs)
         assert any("main...HEAD" in ref for ref in diff_refs)
