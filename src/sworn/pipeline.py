@@ -36,8 +36,17 @@ def run_pipeline(
     repo_root: Path,
     files: list[str],
     config: SwornConfig,
+    *,
+    security_reason: str | None = None,
 ) -> PipelineResult:
-    """Run the full gate pipeline. Deterministic, fail-closed."""
+    """Run the full gate pipeline. Deterministic, fail-closed.
+
+    ``security_reason``: when the caller's staged-path gate already refused
+    (symlink target, confusable-folded name, intent-to-add, unreadable index),
+    the security gate records BLOCKED with that reason instead of re-matching
+    the raw paths; every later gate still runs so the evidence entry records
+    the full structural picture. Fail-closed either way.
+    """
     gate_results: dict[str, str] = {}
     kernel_details: list[dict[str, Any]] = []
     decision = "PASS"
@@ -49,11 +58,16 @@ def run_pipeline(
     gate_results["identity"] = "PASS"
 
     # 2. Security
-    security = evaluate_security(files, config.security_patterns)
-    gate_results["security"] = "PASS" if security.passed else "BLOCKED"
-    if not security.passed:
+    if security_reason:
+        gate_results["security"] = "BLOCKED"
         decision = "BLOCKED"
-        reason = security.reason
+        reason = security_reason
+    else:
+        security = evaluate_security(files, config.security_patterns)
+        gate_results["security"] = "PASS" if security.passed else "BLOCKED"
+        if not security.passed:
+            decision = "BLOCKED"
+            reason = security.reason
 
     # 3. Allowlist — evaluate whenever configured, even if already blocked,
     #    so evidence records every structural gate that was in force.

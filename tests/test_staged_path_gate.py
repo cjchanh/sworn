@@ -214,7 +214,7 @@ class TestRound2Findings:
         entry = json.loads(log.read_text().splitlines()[-1])
         assert entry["decision"] == "BLOCKED"
         assert "allowlist" in entry["gates"]
-        assert entry["gates"]["allowlist"] == "SKIP"  # pipeline never ran: refused at the path gate
+        assert entry["gates"]["allowlist"] == "BLOCKED"
         assert "SWORN BLOCKED" in output
 
     def test_s3_get_staged_files_docstring_names_porcelain_v2(self):
@@ -354,7 +354,7 @@ class TestR1Findings:
         entry = json.loads(log.read_text().splitlines()[-1])
         assert entry["decision"] == "BLOCKED"
         assert "allowlist" in entry["gates"]
-        assert entry["gates"]["allowlist"] == "SKIP"  # pipeline never ran: refused at the path gate
+        assert entry["gates"]["allowlist"] == "BLOCKED"
 
     def test_s3_nfkc_path_dir_style_slash_blocks(self, tmp_repo: Path, capsys):
         cmd_init(tmp_repo)

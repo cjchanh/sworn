@@ -320,12 +320,8 @@ def _is_zero_oid(oid: str) -> bool:
     return oid == "0" * 40 or oid == "0" * 64
 
 
-def _print_blocked(
-    reason: str, result: object | None = None, *, actor: str | None = None
-) -> int:
+def _print_blocked(reason: str, result: object | None = None) -> int:
     print(f"SWORN BLOCKED — {reason}")
-    if actor and result is None:
-        print(f"  Actor: {actor}")
     if result is not None:
         print(f"  Actor: {getattr(result, 'actor', '')}")
         tool = getattr(result, "tool", None)
@@ -343,50 +339,6 @@ def _path_gate_hard_block(reason: str | None) -> bool:
     return reason.startswith("symlink-escapes-repo") or reason.startswith(
         "index-unreadable"
     )
-
-
-def _write_hard_block_evidence(
-    repo_root: Path,
-    config: SwornConfig,
-    files: list[str],
-    reason: str,
-) -> str:
-    """Append one BLOCKED entry for a path-gate refusal; return the actor."""
-    from sworn.evidence.log import EvidenceEntry, _now, append_entry
-    from sworn.gates.identity import evaluate_identity
-
-    identity = evaluate_identity(config.identity_env_vars, repo_root)
-    entry = EvidenceEntry(
-        timestamp=_now(),
-        actor=identity.actor,
-        tool=identity.tool,
-        files=files,
-        # Stages that did not run are SKIP, never PASS: the path gate refused
-        # before the pipeline, so only identity (evaluated here) and security
-        # (the refusal itself) carry a verdict.
-        gates={
-            "identity": "PASS",
-            "security": "BLOCKED",
-            "allowlist": "SKIP",
-            "signing": "SKIP",
-            "kernels": "SKIP",
-        },
-        kernels=[],
-        decision="BLOCKED",
-        reason=reason,
-    )
-    try:
-        append_entry(
-            repo_root / config.evidence_log_path,
-            entry,
-            config.evidence_hash_chain,
-        )
-    except Exception as exc:  # the refusal stands; say the record did not land
-        print(
-            f"SWORN WARNING — blocked, but the evidence entry could not be appended: {exc}",
-            file=sys.stderr,
-        )
-    return identity.actor
 
 
 def cmd_check(repo_root_override: Path | None) -> int:
@@ -419,13 +371,11 @@ def cmd_check(repo_root_override: Path | None) -> int:
             return 1
         return 0  # Nothing staged, nothing to gate
 
-    if pattern_reason:
-        # A path-gate hit is a pre-pipeline refusal: the pipeline never runs, so
-        # it can never write a PASS entry that the CLI then has to contradict.
-        actor = _write_hard_block_evidence(repo_root, config, files, pattern_reason)
-        return _print_blocked(pattern_reason, actor=actor)
-
-    result = run_pipeline(repo_root, files, config)
+    # A path-gate hit (pattern, symlink target, confusable name, intent-to-add,
+    # unreadable index) is handed to the pipeline as the security verdict, so the
+    # pipeline blocks, runs the remaining structural gates, and writes the one
+    # evidence entry itself. Nothing is written or rewritten outside the pipeline.
+    result = run_pipeline(repo_root, files, config, security_reason=pattern_reason)
 
     if result.decision == "PASS":
         print(f"SWORN PASS — {len(files)} file(s) gated")
@@ -861,23 +811,17 @@ def cmd_ci_check(
         print("SWORN PASS — no files in diff")
         return 0
 
-    if pattern_reason:
-        # A path-gate hit is a pre-pipeline refusal: the pipeline never runs, so
-        # it can never write a PASS entry that the CLI then has to contradict.
-        actor = _write_hard_block_evidence(repo_root, config, files, pattern_reason)
-        return _print_blocked(pattern_reason, actor=actor)
-
-    result = run_pipeline(repo_root, files, config)
+    # A path-gate hit (pattern, symlink target, confusable name, intent-to-add,
+    # unreadable index) is handed to the pipeline as the security verdict, so the
+    # pipeline blocks, runs the remaining structural gates, and writes the one
+    # evidence entry itself. Nothing is written or rewritten outside the pipeline.
+    result = run_pipeline(repo_root, files, config, security_reason=pattern_reason)
 
     if result.decision == "PASS":
         print(f"SWORN PASS — {len(files)} file(s) gated (CI)")
         return 0
 
-    print(f"SWORN BLOCKED — {result.reason}")
-    for gate, status in result.gate_results.items():
-        if status == "BLOCKED":
-            print(f"  Gate: {gate} → BLOCKED")
-    return 1
+    return _print_blocked(result.reason, result)
 
 
 def _verify_signed_chain(
