@@ -158,7 +158,7 @@ it — the B-2 fail-open family surviving one invocation shape away from the
 supported ones. Closed by adding the same `raise SystemExit(main())` guard
 to cli.py; pinned by a failing-case regression test
 (test_module_direct_invocation_propagates_block_exit_code). Audit:
-~/.governance/receipts/security-audit/sworn-b2-residual-exit-propagation-rule2-2026-08-18.md.
+an internal CDS security-audit receipt dated 2026-08-18 (not part of this repository).
 
 **Residual boundary — the advisory opt-out is a deliberate fail-open.**
 `--advisory` / `SWORN_ADVISORY=1` still exits `0` when the base cannot be
