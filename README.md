@@ -13,6 +13,12 @@ and CI diff checks, and produces tamper-evident evidence logs.
 
 Cross-tool enforcement for any AI coding tool that commits through git.
 
+**How it enforces:** the enforceable gate is `sworn ci-check` — a CI diff check
+that cannot be bypassed by a local flag. The Git pre-commit hook runs the same
+gate pipeline as fast developer feedback; `git commit --no-verify` skips it
+(see `docs/KNOWN_BOUNDARIES.md` B-1). For team-wide fail-closed posture, make
+the CI gate a required status check.
+
 Security policy and reporting: [`SECURITY.md`](SECURITY.md) · Documented limits of enforcement: [`docs/KNOWN_BOUNDARIES.md`](docs/KNOWN_BOUNDARIES.md)
 
 ## Governance Summary
@@ -261,6 +267,7 @@ It does not prove:
 - Organizational authority or approval
 - Identity beyond Git metadata
 - Secure private-key custody
+- Truncation of the evidence log tail is not detected: deleting the last N lines of .sworn/evidence.jsonl still verifies VALID because the chain head is not pinned out-of-band (see docs/KNOWN_BOUNDARIES.md B-4/B-5)
 
 It proves repository-local tamper-evidence.
 

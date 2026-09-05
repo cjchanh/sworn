@@ -1,6 +1,7 @@
 """Shared test fixtures for Sworn."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -18,6 +19,11 @@ if str(SRC) not in sys.path:
 
 from sworn.config import SwornConfig, _compile_patterns, DEFAULT_SECURITY_PATTERNS
 from tests.gitutil import git_init
+
+requires_nacl = pytest.mark.skipif(
+    importlib.util.find_spec("nacl") is None,
+    reason="pynacl not installed — pip install -e .[dev] or .[signing]",
+)
 
 
 @pytest.fixture
@@ -101,6 +107,7 @@ def sample_evidence(tmp_repo: Path) -> Path:
 @pytest.fixture
 def signing_keypair(tmp_path: Path) -> tuple[Any, Any, Path]:
     """Generate a signing keypair and return (signing_key, verify_key, key_dir)."""
+    pytest.importorskip("nacl", reason="pynacl not installed — pip install -e .[dev] or .[signing]")
     from sworn.evidence.signing import (
         generate_keypair,
         load_signing_key,

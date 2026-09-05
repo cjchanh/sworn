@@ -6,6 +6,7 @@ from pathlib import Path
 
 from sworn.config import SwornConfig, _compile_patterns
 from sworn.pipeline import run_pipeline
+from tests.conftest import requires_nacl
 
 
 def _config(
@@ -126,6 +127,7 @@ class TestPipeline:
         names = [entry["name"] for entry in result.kernel_results]
         assert names == sorted(names)
 
+    @requires_nacl
     def test_threat_legacy_key_layout_blocks_signed_mode(self, tmp_repo: Path):
         legacy_key = tmp_repo / ".sworn" / "signing.key"
         legacy_key.parent.mkdir(exist_ok=True, parents=True)
@@ -138,6 +140,7 @@ class TestPipeline:
         assert result.gate_results.get("signing") == "ERROR"
         assert "Legacy signing key layout" in result.reason
 
+    @requires_nacl
     def test_threat_signing_enabled_missing_key_blocks(self, tmp_repo: Path):
         config = _config()
         config.signing_enabled = True

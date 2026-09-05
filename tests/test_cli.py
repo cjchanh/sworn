@@ -14,6 +14,7 @@ from sworn.cli import (
     cmd_verify,
     main,
 )
+from tests.conftest import requires_nacl
 from tests.gitutil import git_hooks_path, git_init
 
 
@@ -209,6 +210,7 @@ class TestCLI:
         assert "Chain: EMPTY" in captured.out
         assert "VALID" not in captured.out
 
+    @requires_nacl
     def test_verify_signed_mode_unsigned_log_fails(self, tmp_repo: Path, capsys):
         cmd_init(tmp_repo)
         config_path = tmp_repo / ".sworn" / "config.toml"

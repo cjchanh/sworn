@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("nacl", reason="pynacl not installed — pip install -e .[dev] or .[signing]")
+
 from sworn.config import SwornConfig, _compile_patterns
 from sworn.evidence.log import EvidenceEntry, append_entry, read_entries, verify_chain
 from sworn.evidence.signing import (
