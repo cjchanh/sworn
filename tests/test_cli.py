@@ -306,6 +306,55 @@ class TestCLI:
         assert result == 1
         assert "Report: REFUSED" in captured.out
         assert "SWORN EVIDENCE REPORT" not in captured.out
+        # The hash chain excludes the signature field, so this refusal must come
+        # from the signature check itself, not from a hash discontinuity.
+        assert "signature verification failed" in captured.out
+
+    @requires_nacl
+    def test_report_signed_mode_stripped_signature_refuses(self, tmp_repo: Path, capsys):
+        """The documented B-5 attacker: strip signatures, keep the hash chain intact."""
+        import json
+
+        cmd_init(tmp_repo)
+        config_path = tmp_repo / ".sworn" / "config.toml"
+        config_path.write_text(
+            config_path.read_text() + "\n[signing]\nenabled = true\n"
+        )
+        assert cmd_keygen(tmp_repo) == 0
+        from sworn.config import load_config
+        from sworn.evidence.log import EvidenceEntry, append_entry
+        from sworn.evidence.signing import load_signing_key
+
+        config = load_config(tmp_repo)
+        sk = load_signing_key(tmp_repo / config.signing_key_path)
+        log_path = tmp_repo / config.evidence_log_path
+        append_entry(
+            log_path,
+            EvidenceEntry(
+                timestamp="2026-01-01T00:00:00Z",
+                actor="test",
+                tool=None,
+                files=["a.py"],
+                gates={"identity": "PASS"},
+                kernels=[],
+                decision="PASS",
+            ),
+            hash_chain=True,
+            signing_key=sk,
+        )
+        line = log_path.read_text().splitlines()[0]
+        entry = json.loads(line)
+        # Byte-patch only the signature value inside the original line so the
+        # rest of the serialization (and therefore the hash chain) is untouched.
+        stripped = line.replace(json.dumps(entry["signature"]), '""', 1)
+        assert stripped != line
+        log_path.write_text(stripped + "\n")
+        result = cmd_report(tmp_repo, "text", None, False)
+        captured = capsys.readouterr()
+        assert result == 1
+        assert "Report: REFUSED" in captured.out
+        assert "missing signature in signed log" in captured.out
+        assert "SWORN EVIDENCE REPORT" not in captured.out
 
     @requires_nacl
     def test_report_signing_disabled_unchanged(self, tmp_repo: Path, capsys):

@@ -46,6 +46,7 @@ def main() -> int:
     require_contains(ROOT / "action.yml", f'default: "{version}"')
     require_contains(ROOT / "examples" / "sworn-ci.yml", f"cjchanh/sworn@{version}")
     require_absent(ROOT / "examples" / "sworn-ci.yml", "CentennialDefenseSystemsInc")
+    require_contains(ROOT / "docs" / "DEPLOYMENT.md", f"cjchanh/sworn@{version}")
     require_absent(ROOT / "docs" / "DEPLOYMENT.md", "CentennialDefenseSystemsInc")
     require_absent(ROOT / "pyproject.toml", "CentennialDefenseSystemsInc")
     require_contains(ROOT / "examples" / "sworn-ci.yml", f'version: "{version}"')
