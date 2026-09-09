@@ -40,7 +40,7 @@ Phase-0 Branch:
 - Bootstrap and full verification scripts passed
 - `python3 -m build --no-isolation` succeeded
 - Release evidence reviewed and committed before signed tag creation
-- Signed tag and publish identity must be recorded during phase1 in release notes or external operator log
+- Signed tag and publish identity must be recorded during phase1 in release notes or external maintainer log
 - Release evidence folder hash recorded
 
 ## Hashes

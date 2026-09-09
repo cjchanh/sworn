@@ -122,7 +122,7 @@ Scope is evidence-support only.
 
 ## Release Boundary
 
-Release validity is governed by `RELEASE_PROCESS.md`.
+Release validity is defined by `RELEASE_PROCESS.md`.
 
 - Any change touching enforcement, integrity, or compliance semantics requires release-classified review.
 - Release is blocked on missing gates, failed checks, or unresolved doc/code drift.
