@@ -170,6 +170,26 @@ class TestStagedPathGate:
         assert result == 1
         assert "protected/key.txt" in output
 
+    def test_two_hop_symlink_chain_is_depth_one(self, tmp_repo: Path):
+        """Lock current depth-1 symlink resolution (KNOWN_BOUNDARIES B-12).
+
+        hop2 -> hop1 -> protected/: the gate reads hop2's index blob
+        ("hop1") and stops. Staging hop2 alone must PASS. Making this
+        transitive is a deliberate change and must update B-12.
+        """
+        _enable_protected_pattern(tmp_repo)
+        (tmp_repo / "protected").mkdir()
+        (tmp_repo / "protected" / "key.txt").write_text("secret")
+        os.symlink("protected", tmp_repo / "hop1")
+        os.symlink("hop1", tmp_repo / "hop2")
+        _git(tmp_repo, "add", "--", "hop2")
+        config = load_config(tmp_repo)
+        _files, reason = evaluate_path_gate_candidates(
+            tmp_repo, ["hop2"], config.security_patterns
+        )
+        assert reason is None
+        assert cmd_check(tmp_repo) == 0
+
 
 class TestRound2Findings:
     def test_s2_ok_symlink_returns_only_original_path(self, tmp_repo: Path, capsys):

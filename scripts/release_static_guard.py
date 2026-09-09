@@ -16,6 +16,26 @@ ROOT = Path(__file__).resolve().parents[1]
 SELF_PATH = Path("scripts/release_static_guard.py")
 STALE_VERSION = "0.3.0"
 
+# Public-facing prose ban list (README, pyproject description, root *.md, docs/).
+BANNED_VOCAB: tuple[tuple[str, str], ...] = (
+    ("testify", r"\btestify\b"),
+    ("testifies", r"\btestifies\b"),
+    ("testimony", r"\btestimony\b"),
+    ("receipt", r"\breceipt\b"),
+    ("receipts", r"\breceipts\b"),
+    ("Tuesday Bar", r"tuesday\s+bar"),
+    ("TuesdayBar", r"tuesdaybar"),
+    ("craft-gate", r"craft-gate"),
+    ("craft gate", r"craft\s+gate"),
+    ("operator", r"\boperator\b"),
+    ("operators", r"\boperators\b"),
+    ("governed", r"\bgoverned\b"),
+)
+
+_FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+_INTERNAL_ROOT_REPORTS = frozenset({"REVIEW.md", "UPGRADE_REPORT.md", "AGENTS.md"})
+
 
 def fail(message: str) -> None:
     print(f"FAIL: {message}")
@@ -37,6 +57,67 @@ def require_absent(path: Path, needle: str) -> None:
     content = path.read_text()
     if needle in content:
         fail(f"forbidden content present | {path} | {needle}")
+
+
+def load_project_description(root: Path) -> str:
+    with (root / "pyproject.toml").open("rb") as f:
+        return str(tomllib.load(f)["project"]["description"])
+
+
+def public_prose_files(root: Path) -> list[Path]:
+    """Public-facing prose: README, root ``*.md``, and ``docs/**``.
+
+    Root-level ``REVIEW.md`` and ``UPGRADE_REPORT.md`` are internal reports
+    and are excluded from this list.
+    """
+    files: list[Path] = []
+    seen: set[Path] = set()
+
+    def add(path: Path) -> None:
+        if path in seen or not path.is_file():
+            return
+        seen.add(path)
+        files.append(path)
+
+    add(root / "README.md")
+    for path in sorted(root.glob("*.md")):
+        if path.name in _INTERNAL_ROOT_REPORTS:
+            continue
+        add(path)
+    docs = root / "docs"
+    if docs.is_dir():
+        for path in sorted(docs.rglob("*")):
+            if path.is_file() and path.suffix.lower() in {".md", ".txt", ".rst"}:
+                add(path)
+    return files
+
+
+def _prose_only(text: str) -> str:
+    """Drop fenced code blocks and inline code spans before vocab scan.
+
+    A banned word inside backticks is therefore exempt (so `import operator` and
+    identifier names never fail a release); prose must keep banned words out of
+    backticks too if it wants the guard to see them.
+    """
+    return _INLINE_CODE_RE.sub(" ", _FENCED_CODE_RE.sub(" ", text))
+
+
+def _scan_text(label: str, text: str) -> list[str]:
+    hits: list[str] = []
+    prose = _prose_only(text)
+    for name, pattern in BANNED_VOCAB:
+        if re.search(pattern, prose, re.IGNORECASE):
+            hits.append(f"{label} | {name}")
+    return hits
+
+
+def banned_vocab_hits(root: Path) -> list[str]:
+    """Return public-prose hits for the vocabulary ban list."""
+    hits = _scan_text("pyproject.toml description", load_project_description(root))
+    for path in public_prose_files(root):
+        rel = path.relative_to(root).as_posix()
+        hits.extend(_scan_text(rel, path.read_text()))
+    return hits
 
 
 def main() -> int:
@@ -75,6 +156,10 @@ def main() -> int:
         fail("README missing deployment/config doc links")
     if "Every commit is now gated." in readme:
         fail("README overclaims local hook scope")
+
+    vocab_hits = banned_vocab_hits(ROOT)
+    if vocab_hits:
+        fail("banned public vocabulary | " + "; ".join(vocab_hits))
 
     process_text = (ROOT / "RELEASE_PROCESS.md").read_text()
     if "release_phase1_capture.sh" not in process_text:

@@ -22,8 +22,23 @@ No boundary below is stated from inference alone.
 
 **Subsequent changes.** B-2 was closed in
 `18ebbb8ef74f0a0ea0bd6d1e790eedacb48833c4` (`0.4.0-41-g18ebbb8`) and
-re-verified against that tree. Every other boundary below still describes
-`90aa0a1` and has not been re-read since.
+re-verified against that tree. B-5 CLI report path was closed later; the
+library residual is recorded under B-5. B-11 (tail truncation) was added
+as a first-class boundary. B-12 (two-hop symlink chain) was added against
+the staged-path landing on `956da7e` plus the uncommitted round-1 tree.
+Every other boundary below still describes `90aa0a1` unless a CLOSED
+marker says otherwise.
+
+**Third-party verification — what Sworn cannot prove**
+
+- Actor identity is self-asserted (`git config user.name`). See B-7.
+- `sworn report` exit 0 is not an attestation. See B-3. Library report
+  helpers still skip signature checks. See B-5 residual.
+- A public key stored in the repo is not an organizational trust anchor.
+  See B-9.
+- Tail truncation is not detected unless expected head hash and entry
+  count are pinned out of band. See B-11. This pin is **required** for
+  third-party use.
 
 ---
 
@@ -56,7 +71,7 @@ tampered one.
 
 **What mitigates it today.** The CI gate. `sworn ci-check` re-runs the same
 pipeline over the pull-request diff, where the developer does not control
-invocation. `README.md` §*What It Does* and `docs/DEPLOYMENT.md` both direct teams to treat
+invocation. `README.md` §*Local check (developer convenience)* and `docs/DEPLOYMENT.md` both direct teams to treat
 local hooks as developer fast-fail and to make the CI check a required status
 check. `SECURITY.md` already lists `--no-verify` bypass as a considered
 adversary capability.
@@ -158,7 +173,7 @@ it — the B-2 fail-open family surviving one invocation shape away from the
 supported ones. Closed by adding the same `raise SystemExit(main())` guard
 to cli.py; pinned by a failing-case regression test
 (test_module_direct_invocation_propagates_block_exit_code). Audit:
-an internal CDS security-audit receipt dated 2026-08-18 (not part of this repository).
+an internal CDS security-audit record dated 2026-08-18 (not part of this repository).
 
 **Residual boundary — the advisory opt-out is a deliberate fail-open.**
 `--advisory` / `SWORN_ADVISORY=1` still exits `0` when the base cannot be
@@ -215,7 +230,7 @@ alarm on. This is a foot-gun in the integrator's hands, not a tampering path.
 
 **What mitigates it today.** `sworn verify` is the fail-closed surface and does
 distinguish `EMPTY` / `VALID` / `BROKEN` (`src/sworn/evidence/log.py:153-162`).
-`README.md` §*Evidence* shows the `EMPTY` case and states the exit code is 1.
+`docs/report-example.md` shows the `EMPTY` case and states the exit code is 1.
 
 **Remediation options (no commitment, no dates).**
 
@@ -323,6 +338,23 @@ disabled, `cmd_report` behaves as before.
 **What mitigates it today.** The shared helper. The two commands can no longer
 drift on key loading or `require_signatures`.
 
+**Residual — library, status, and CMMC kernel paths still ignore signatures.**
+`cmd_report` is closed. These call sites still invoke `verify_chain` with
+default `require_signatures=False`:
+
+- `src/sworn/evidence/report.py:52` — `generate_report`
+- `src/sworn/evidence/cmmc_report.py:69` — `generate_cmmc_report`
+- `src/sworn/cli.py:962` — `cmd_status`
+- `src/sworn/kernels/cmmc/evidence_integrity.py:43` — `verify_chain(..., verify_key=...)` (no `require_signatures`)
+- `src/sworn/kernels/cmmc/evidence_integrity.py:45` — `verify_chain(..., verify_key_dir=...)` (no `require_signatures`)
+- `src/sworn/kernels/cmmc/evidence_integrity.py:47` — `else` branch `verify_chain(log_path)` (hash chain only; signatures ignored)
+
+Direct library use of `generate_report` is hash-chain-only. The CMMC
+evidence-integrity kernel can load a verify key and still omit
+`require_signatures`, so unsigned entries in a signed log are not a
+kernel block. Treat `sworn verify` as the integrity command. A
+repo-controlled public key is not an organizational trust anchor (B-9).
+
 ---
 
 ## B-6 — Custom kernels are unsandboxed in-process Python
@@ -344,12 +376,12 @@ checked.
 
 **Why it exists.** It is the extension mechanism. Sworn's kernel SDK is
 explicitly a "write a Python file with an `evaluate()` function" interface
-(`README.md` §*Custom Kernels*), and that requires executing user code.
+(`docs/custom-kernels.md`), and that requires executing user code.
 
 **What an attacker can do inside it.** Anyone who can land a file in
 `.sworn/kernels/` — which is a normal, committed, reviewable path in the target
 repository — achieves arbitrary code execution in every developer's
-`pre-commit` run and in CI. The kernel purity rules (`README.md` §*Kernel Contract*: no file writes, no
+`pre-commit` run and in CI. The kernel purity rules (`docs/custom-kernels.md`: no file writes, no
 network calls, no subprocesses) are a **contract**, not an
 enforcement: nothing in the loader inspects or restricts what the module does.
 
@@ -361,9 +393,8 @@ exposure from this. Import failures do fail closed
 exceptions at evaluation time also fail closed
 (`src/sworn/pipeline.py:111-117`) — but neither is a containment mechanism.
 
-This boundary is already acknowledged: `README.md` §*Known Residual Risks*
-("Kernel purity is contract-enforced; runtime sandboxing is out of scope
-today"), and `SECURITY.md`
+This boundary is already acknowledged: `docs/custom-kernels.md`
+("Purity is a contract, not a sandbox"), and `SECURITY.md`
 lists both "Malicious kernel implementation" as an uncovered adversary
 capability and "Provide sandbox isolation for kernels" as an explicit non-goal.
 
@@ -398,7 +429,7 @@ kernel, and its notion of "resolved" is a two-element denylist:
 - `src/sworn/kernels/cmmc/ac_access.py:17` — an actor blocks only if its
   stripped, case-folded value is in that set.
 
-Any other non-empty string passes. `README.md` §*What It Does* documents the actor source
+Any other non-empty string passes. `README.md` §*What it refuses / what it cannot prove* documents the actor source
 as the gated repository's `git config user.name`, which is a value the committer
 sets themselves.
 
@@ -477,7 +508,7 @@ attestation. Refusing is the correct behavior.
 **What the residual boundary actually is.** Not a bypass — a usability trap. The
 zero-kernel state is reachable purely through configuration
 (`src/sworn/config.py:163-177`: `security`, `allowlist`, and `audit` each default
-to `true`, and `cmmc` defaults to `false`), so an operator who disables the three
+to `true`, and `cmmc` defaults to `false`), so a maintainer who disables the three
 built-in kernels to "quiet" Sworn will block **every** commit in the repository
 with a message about kernels rather than about their config. The pressure that
 creates is to remove Sworn entirely, or to add `--no-verify` to muscle memory
@@ -502,7 +533,7 @@ creates is to remove Sworn entirely, or to add `--no-verify` to muscle memory
 
 Signing proves that an entry was produced by a key present in the repository's
 `.sworn/keys/` layout. It does not prove organizational authority, key custody,
-or approval. `README.md` §*Integrity vs Trust* and `SECURITY.md` both state this, and both
+or approval. `docs/SIGNING.md` and `SECURITY.md` both state this, and both
 describe the Org-Trust posture (pinned public keys, protected branches, external
 private-key custody, explicit rotation) required before signing should be read as
 attestation. Nothing in Sworn verifies that those controls are in place.
@@ -529,8 +560,101 @@ controls" and
 and only the first is true by default.
 
 Sworn's CMMC output is evidence-support material. It does not certify
-compliance and does not replace a C3PAO (`README.md` §*CMMC Evidence Scope*,
+compliance and does not replace a C3PAO (`README.md` §*CMMC*,
 `COMPLIANCE_SCOPE.md`).
+
+---
+
+## B-11 — Signed and unsigned logs permit tail truncation
+
+**Status:** Verified; already noted in older README text under a B-4/B-5
+label that does not match this document's numbering. Restated here so the
+boundary has a stable id.
+
+**What it is.** Deleting the last N lines of `.sworn/evidence.jsonl` leaves
+a prefix whose hashes still chain. `sworn verify` prints `Chain: VALID`
+with a smaller entry count. There is no terminal commitment (signed
+length + head) in the tool today.
+
+**Why it exists.** A hash chain authenticates the prefix it still has. It
+cannot notice bytes that are no longer there unless something outside the
+file pins the expected head and length.
+
+**What a third party must do.** Pin **expected head hash and entry count**
+out of band on every append they care about (git tag, protected CI
+artifact, or an external record). Compare those pins on verify. Without
+that pin, truncation is undetectable and `VALID` must not be read as
+"complete". This is required for third-party use; it is not optional
+guidance.
+
+**Remediation options (no commitment, no dates).**
+
+1. Keep the out-of-band pin as the third-party contract (chosen here:
+   bounded, no new command).
+2. Add a terminal commitment such as `sworn seal` writing a signed
+   length+head record.
+
+---
+
+## B-12 — Two-hop symlink chains are resolved one lexical hop
+
+**Status:** Verified. Current depth-1 behaviour is locked by
+`tests/test_staged_path_gate.py::TestStagedPathGate::test_two_hop_symlink_chain_is_depth_one`.
+The gate is **not** patched; making resolution transitive is a
+deliberate future change and must update this entry.
+
+**What it is.** Staged-path symlink resolution reads one blob from the
+index and matches that target string. It does not walk a chain.
+
+- `src/sworn/cli.py:617` — `target = _symlink_blob_target(repo_root, sha, path)`
+- `src/sworn/cli.py:535-546` — `_symlink_blob_target` is `git cat-file -p <sha>`
+  on the staged symlink blob (the literal target string).
+- `src/sworn/cli.py:618-643` — that string is NFKC-normalised, confusable-folded,
+  and joined with the staged path's directory. There is no second
+  `_index_record` / `_symlink_blob_target` call on the target.
+
+Repro (scratch repo, protected-path pattern `(^|/)protected/`):
+
+```
+protected/key.txt     # blocked directory
+hop1 -> protected     # first hop
+hop2 -> hop1          # second hop
+git add -- hop2
+sworn check           # PASS (exit 0)
+```
+
+`hop2`'s index blob is the string `hop1`. `hop1` does not match the
+protected-path pattern, so the gate returns no pattern reason.
+
+**Why it is low.** Two independent facts keep this from being a practical
+bypass:
+
+1. Staging `hop1` itself blocks. `hop1`'s blob is `protected`, which
+   matches. The chain only passes when the intermediate symlink is
+   *not* in the staged set.
+2. Git refuses adding *through* a symlink. `git add hop2/...` does not
+   stage the protected tree as regular files behind `hop2`; the staged
+   object for `hop2` remains a symlink blob. The attacker still has to
+   stage the real path (which blocks) or the first hop (which blocks).
+
+**What an attacker can do inside it.** Land a two-hop symlink whose
+intermediate name is not itself a sensitive-path pattern, and have
+`sworn check` / `sworn ci-check` treat that staged symlink as ordinary.
+Contents behind the chain are not scanned (path patterns only; see the
+README refuses list). The CI required-status path sees the same
+depth-1 resolution.
+
+**What mitigates it today.** Staging any hop whose blob string matches a
+sensitive-path pattern still blocks. Review of symlink additions remains
+the human control for names that do not match.
+
+**Remediation options (no commitment, no dates).**
+
+1. Keep depth-1 and this lock test (chosen here: bounded, matches git's
+   own "add the symlink, not the target" model).
+2. Walk symlink blobs transitively until a non-symlink, a cycle, or
+   `symlink-escapes-repo`. That is a behaviour change and must retarget
+   this entry.
 
 ---
 
@@ -542,11 +666,11 @@ Recorded so the gaps are visible rather than implied:
   `verify` is established by reading `report.py:52`, `log.py:169`, and
   `cli.py:573`. The runtime demonstration required generating an Ed25519 keypair,
   and the authoring environment's key-material governance hook refused the
-  command. The code path is unambiguous; the live receipt is absent.
+  command. The code path is unambiguous; the live demonstration is absent.
 - **B-1 live reproduction.** The `--no-verify` demonstration required committing
   a file under a `crypto/` path, which the authoring environment's Rule-2 hook
   refused. The boundary follows from `cli.py:277` and Git's documented
-  `--no-verify` semantics, but no live receipt was captured.
+  `--no-verify` semantics, but no live demonstration was captured.
 - **`src/sworn/gates/identity.py`** was not read at all (see B-7). The actor
   fallback behavior is uncharacterized in this document.
 

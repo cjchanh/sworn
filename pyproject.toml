@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sworncode"
 version = "0.4.1"
-description = "Deterministic, fail-closed AI code governance. Every commit is sworn."
+description = "Path-pattern git gate and hash-chained evidence log for AI-assisted commits."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"

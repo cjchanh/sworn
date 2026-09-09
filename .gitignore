@@ -28,3 +28,4 @@ CRAFT_GATE_RESULT.json
 # re-run stages it again and re-publishes exactly what that scrub removed.
 release-evidence/
 .venv-release/
+.lineage-state/

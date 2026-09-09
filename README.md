@@ -5,55 +5,7 @@
 
 # Sworn
 
-**Deterministic, fail-closed AI code governance. Every commit is sworn.**
-
-Sworn is a Python CLI that installs Git pre-commit hooks in the repository's
-effective hooks path, runs a configurable gate pipeline on local commit checks
-and CI diff checks, and produces tamper-evident evidence logs.
-
-Cross-tool enforcement for any AI coding tool that commits through git.
-
-**How it enforces:** the enforceable gate is `sworn ci-check` — a CI diff check
-that cannot be bypassed by a local flag. The Git pre-commit hook runs the same
-gate pipeline as fast developer feedback; `git commit --no-verify` skips it
-(see `docs/KNOWN_BOUNDARIES.md` B-1). For team-wide fail-closed posture, make
-the CI gate a required status check.
-
-Security policy and reporting: [`SECURITY.md`](SECURITY.md) · Documented limits of enforcement: [`docs/KNOWN_BOUNDARIES.md`](docs/KNOWN_BOUNDARIES.md)
-
-## Governance Summary
-
-Sworn gives teams a deterministic gate before commit that blocks risky changes and
-produces auditable evidence for compliance programs.
-
-- It solves ambiguous AI-code governance by enforcing explicit, deterministic rules.
-- It guarantees fail-closed behavior on signature, hashing, and CI enforcement failures.
-- It provides compliance-support reporting (CMMC-focused in 0.4.1).
-- It does not certify compliance, replace a C3PAO, or provide a PKI/identity trust service.
-- Engineering value: predictable commit outcomes, stronger evidence retention, and simpler policy enforcement.
-- Security value: tamper-evident logs, strict fail-closed semantics, and scoped threat assumptions.
-- Compliance value: explicit control mapping and explicit “support-only” interpretation.
-
-For full threat model and scope boundaries:
-
-- `SECURITY.md`
-- `docs/KNOWN_BOUNDARIES.md`
-- `COMPLIANCE_SCOPE.md`
-- `GOVERNANCE_OVERVIEW.md`
-- `RELEASE_PROCESS.md`
-- `docs/config.md`
-- `docs/DEPLOYMENT.md`
-
-## Governance Architecture
-
-Sworn is organized across four layers:
-
-1. Runtime Enforcement → pipeline, resolver, and kernels.
-2. Evidence Integrity → canonical JSON, hash-chain, and signatures.
-3. Compliance Interpretation → CMMC kernels and report mapping.
-4. Release Governance → version discipline and evidence retention.
-
-See `GOVERNANCE_OVERVIEW.md` for the full model and cross-layer bindings.
+Path-pattern git gate and hash-chained evidence log for AI-assisted commits.
 
 ## Install
 
@@ -61,16 +13,40 @@ See `GOVERNANCE_OVERVIEW.md` for the full model and cross-layer bindings.
 pip install sworncode
 ```
 
-## Quick Start
+## Example — the enforceable path
 
 ```bash
-# Initialize in any git repo
+sworn ci-check --base origin/main
+```
+
+Make that job a required status check. That is the path a local flag cannot skip.
+
+The Git pre-commit hook (`sworn check`) is developer feedback only.
+`git commit --no-verify` skips it. See `docs/DEPLOYMENT.md`.
+
+## What it refuses / what it cannot prove
+
+**Refuses** staged paths that match configured sensitive-path patterns
+(raw, Unicode-normalised, confusable-folded, collapsed, symlink targets).
+Also blocks `index-unreadable` and `symlink-escapes-repo`.
+Path patterns only; contents are not scanned.
+
+**Cannot prove**
+
+- Actor identity — recorded from self-asserted `git config user.name`.
+- Log-tail truncation — `sworn verify` still reports `VALID` after the last N lines are deleted. Third-party use **requires** an out-of-band expected head hash and entry count (tag, protected artifact, or external pin). Without that pin, truncation is undetectable.
+- Organizational trust from a public key stored in the same repository. Whoever controls the repo can replace `.sworn/keys/*.pub` and re-sign.
+- `sworn report` is a summary. Its exit code is not an attestation. `sworn verify` is the integrity command. These call sites still verify the hash chain only (`require_signatures` defaults off): `generate_report` (`src/sworn/evidence/report.py:52`), `generate_cmmc_report` (`src/sworn/evidence/cmmc_report.py:69`), `cmd_status` (`src/sworn/cli.py:962`), and the CMMC evidence-integrity kernel (`src/sworn/kernels/cmmc/evidence_integrity.py:43/45/47`; the `:47` `else` ignores signatures).
+
+Full list with file:line evidence: [`docs/KNOWN_BOUNDARIES.md`](docs/KNOWN_BOUNDARIES.md).
+Signing model: [`docs/SIGNING.md`](docs/SIGNING.md).
+Security reporting: [`SECURITY.md`](SECURITY.md).
+
+## Local check (developer convenience)
+
+```bash
 cd your-repo
 sworn init
-
-# That's it. Local commits in this repo now run through Sworn.
-# For team-wide fail-closed posture, require the CI gate in docs/DEPLOYMENT.md.
-# Try committing a file in a sensitive path:
 mkdir -p crypto
 echo "secret = 'key'" > crypto/vault.py
 git add crypto/vault.py
@@ -78,284 +54,53 @@ git commit -m "test"
 # → SWORN BLOCKED — Security surface: crypto/vault.py
 ```
 
-## What It Does
-
-Sworn runs a 5-stage gate pipeline during local commit checks and CI diff checks:
-
-1. **Identity** — Records actor (gated repo `git config user.name`) and AI
-   tool from environment. This stage **never blocks**. Unresolved actor is
-   blocked only when the opt-in CMMC AC kernel is enabled.
-2. **Security** — Blocks commits touching sensitive paths (configurable):
-   path patterns only (raw, Unicode-normalised, confusable-folded,
-   collapsed, symlink targets); contents are not scanned. Also blocks
-   `index-unreadable` and `symlink-escapes-repo`.
-3. **Allowlist** — Enforces file access control when configured (still
-   evaluated after a prior block so evidence is complete)
-4. **Signing** — Fail-closed when signing is enabled (missing/legacy key,
-   missing PyNaCl, or sign failure blocks)
-5. **Kernels** — Runs constraint kernels (built-in + custom) even when a
-   structural gate already blocked
-6. **Evidence** — Appends a JSONL entry to `.sworn/evidence.jsonl`. A log
-   write failure blocks.
-
-Every stage is deterministic. No AI in the governance loop. No network
-calls. No probabilistic analysis. Identity records and never blocks; other
-enabled stages either pass or block.
-
-For team-wide fail-closed posture, treat local hooks as developer fast-fail and make the CI gate a required status check. See `docs/DEPLOYMENT.md`.
-
 ## Commands
 
 ```bash
-sworn init              # Initialize sworn in a git repo
-sworn check             # Run gate pipeline (called by pre-commit hook)
-sworn report            # Show evidence summary
-sworn report --json     # Machine-readable output
+sworn init              # Write config + install the local hook
+sworn check             # Gate staged files (hook target; skippable)
+sworn ci-check          # Gate a PR/CI diff (enforceable path)
+sworn verify            # Chain EMPTY/VALID/BROKEN; exit 1 unless VALID
+sworn report            # Summary; exit 0 is not an attestation
+sworn report --json
 sworn report --cmmc     # CMMC evidence-support report
-sworn status            # Show initialization and config state
-sworn verify            # Verify evidence chain (EMPTY/VALID/BROKEN)
-python -m sworn          # Run command through module entrypoint
-sworn --version         # Print version
-sworn keygen            # Generate Ed25519 signing keypair (needs PyNaCl)
-sworn ci-check          # Run pipeline on a PR/CI diff
+sworn status
+sworn keygen            # Ed25519 keypair (needs PyNaCl)
+sworn --version
+python -m sworn
 ```
 
 ## Configuration
 
-After `sworn init`, edit `.sworn/config.toml`:
+After `sworn init`, edit `.sworn/config.toml`. Defaults and keys: [`docs/config.md`](docs/config.md).
 
-```toml
-[security]
-# Regex patterns for sensitive paths (case-insensitive)
-patterns = [
-    '(^|/)(crypto|auth|gates|licensing|keys)/',
-    '(^|/)secrets?/',
-    '\.env$',
-    '(^|/)private/',
-]
+Sensitive-path patterns are case-insensitive regexes such as
+`(^|/)(crypto|auth|gates|licensing|keys)/`, `(^|/)secrets?/`, `\.env$`.
 
-[allowlist]
-# Only these glob patterns allowed (empty = all allowed)
-files = []
+## CMMC
 
-[kernels]
-# Built-in kernels
-security = true
-allowlist = true
-audit = true
+The CMMC pack is evidence-support only (CMMC-focused in 0.4.1).
+It does not certify compliance, replace a C3PAO, or guarantee an assessment outcome.
+See `COMPLIANCE_SCOPE.md`.
 
-# Custom kernels
-custom_dir = ".sworn/kernels"
-
-# CMMC kernel pack is off by default. Enable explicitly:
-# cmmc = true
-
-[evidence]
-log_path = ".sworn/evidence.jsonl"
-hash_chain = true
-
-# [signing]
-# enabled = false
-# key_path = ".sworn/keys/active.key"
-# pub_path = ".sworn/keys/"
-```
-
-## Custom Kernels
-
-Write a Python file in `.sworn/kernels/` with an `evaluate()` function:
-
-```python
-from sworn.kernels.sdk import KernelInput, KernelResult
-
-def evaluate(kernel_input: KernelInput) -> KernelResult:
-    # Your logic here
-    if some_condition:
-        return KernelResult(
-            decision="BLOCKED",
-            triggered_rules=["my_rule"],
-            evidence_summary=["Blocked because..."],
-        )
-    return KernelResult(decision="PASS")
-```
-
-## Evidence
-
-Every gate run produces a JSONL entry with SHA256 hash chain:
+## Develop
 
 ```bash
-sworn report
-# SWORN EVIDENCE REPORT
-# ========================================
-# Total commits gated: 47
-#   Passed: 43
-#   Blocked: 4
-#   Pass rate: 91.5%
-# Chain integrity: VALID
-
-sworn verify
-# Chain: VALID
-#   Chain valid: 47 entries
-# Empty log (after init, before any gated commit):
-# Chain: EMPTY
-#   EMPTY: no evidence log found
-# Exit code is 1 — nothing was attested.
+pip install -e ".[dev]"
+python -m pytest tests -q
 ```
 
-## Security Posture & Rule-2 Scope
-
-Sworn’s evidence signing and verification layer is Security-Critical.
-
-Rule-2 scoped behavior includes:
-
-- `src/sworn/evidence/signing.py`
-- `src/sworn/evidence/log.py`
-- CLI commands in `src/sworn/cli.py` that verify evidence
-- CI diff-base resolution in CI mode
-
-This behavior is fail-closed:
-
-- If signing is enabled and signing fails, the pipeline blocks.
-- If verification fails, `sworn verify` reports `BROKEN`.
-- Missing signature in signed mode is a violation.
-- If base resolution fails in CI compliance mode, the check exits fail-closed.
-
-## Deterministic Resolution Contract
-
-Sworn resolution semantics are intentional and fixed:
-
-1. Structural gates execute first.
-2. Kernels execute after structural gates.
-3. If any kernel returns `BLOCKED`, final result is `BLOCKED`.
-4. Primary reason is deterministic by lexical sort of blocked kernel names.
-5. All blockers are preserved in `resolution_trace`.
-6. No precedence overrides exist.
-
-This design favors clarity and auditability over configurability.
-
-## Kernel Contract (Mandatory for Contributors)
-
-Sworn executes kernels even when structural gates already block.
-
-All kernels MUST:
-
-- Be pure (no file writes, network calls, or subprocesses)
-- Be side-effect free
-- Tolerate partial or failed gate states
-- Not depend on a prior structural `PASS`
-
-Violation is a contract breach and a security defect.
-
-## Evidence Signing Model
-
-### Canonicalization
-
-Sworn signs a deterministic canonical JSON form:
-
-- UTF-8 encoding
-- `json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`
-- `signature=""` placeholder during canonicalization
-- No trailing newline
-- Stable, deterministic field ordering
-
-Canonicalization rules are versioned. Any change increments the internal signing/evidence schema and requires compatibility handling.
-
-### Integrity vs Trust
-
-#### Repo-Local Integrity (Default)
-
-This mode detects tampering after an entry is written, chain discontinuity, and key mismatch relative to repo-local keys.
-
-It does not prove:
-
-- Organizational authority or approval
-- Identity beyond Git metadata
-- Secure private-key custody
-- Truncation of the evidence log tail is not detected: deleting the last N lines of .sworn/evidence.jsonl still verifies VALID because the chain head is not pinned out-of-band (see docs/KNOWN_BOUNDARIES.md B-4/B-5)
-
-It proves repository-local tamper-evidence.
-
-#### Org-Trust Mode (Recommended for compliance)
-
-To elevate signing into attestation quality:
-
-- Pin public keys via protected branches / CODEOWNERS / policy repo
-- Restrict key updates with branch protections and owner controls
-- Keep private keys outside the repo working tree (`KMS`, Vault, keychain, or secret manager)
-- Run explicit rotation/retirement procedures
-
-Sworn verifies signatures; it does not manage organizational assurance by itself.
-
-## Key Layout & Migration
-
-Current layout:
-
-```text
-.sworn/
-  keys/
-    active.key        # private key
-    <key_id>.pub      # committed public key
-```
-
-Legacy layout:
-
-```text
-.sworn/signing.key
-```
-
-Behavior:
-
-- If `.sworn/signing.key` exists and `.sworn/keys/active.key` does not, Sworn blocks when signing is enabled and emits actionable migration instructions.
-- Sworn does not silently continue.
-- Sworn does not auto-migrate without explicit user action.
-- Upgrades from legacy layout require explicit migration guidance before signing is used.
-
-## CI Enforcement (Fail-Closed)
-
-Sworn CI mode uses `github.event.pull_request.base.sha` and fail-closes if resolution is not possible.
-
-- If base SHA resolves, diff is computed deterministically against HEAD.
-- If base SHA cannot be resolved in compliance mode, check fails with remediation guidance.
-- Silent fallback is not permitted.
-
-Workflow requirement:
-
-```yaml
-actions/checkout@v4
-with:
-  fetch-depth: 0
-```
-
-## CMMC Evidence Scope
-
-Sworn’s CMMC pack provides evidence-support mappings to selected NIST SP 800-171 controls and explicitly documented determination statements.
-
-It does not certify compliance, replace a C3PAO, or guarantee assessment outcome.
-
-## Release Readiness Checklist
-
-Before tagging any release:
-
-- Clean reproducible install (`python -m pip install .[dev,signing]` in a clean environment on Python 3.10-3.13)
-- Full pytest suite green
-- Signing-enabled tamper detection validated
-- CI base-resolution failure path validated
-- Legacy key migration path validated
-- Version bump consistent across package metadata and documentation
-- Release evidence generated and reviewed before signed tag capture
-- Working tree clean during final tag capture
-
-## Known Residual Risks
-
-- Repo-local signing is not equivalent to organizational attestation.
-- Kernel purity is contract-enforced; runtime sandboxing is out of scope today.
-- CI enforcement depends on correct workflow configuration and checkout depth.
-- Migration from legacy key layouts still requires explicit user action.
+`.[dev]` installs pytest and PyNaCl. Without PyNaCl, signing tests skip cleanly.
 
 ## Requirements
 
 - Python 3.10+
 - Git
-- Zero runtime dependencies (tomli included in stdlib from 3.11)
+- Zero runtime dependencies (`tomli` on Python < 3.11)
+
+## Related docs
+
+[`docs/config.md`](docs/config.md) · [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) · [`docs/custom-kernels.md`](docs/custom-kernels.md) · [`docs/report-example.md`](docs/report-example.md) · [`docs/SIGNING.md`](docs/SIGNING.md) · [`docs/KNOWN_BOUNDARIES.md`](docs/KNOWN_BOUNDARIES.md) · [Release readiness checklist](RELEASE_PROCESS.md#release-readiness-checklist) · [`SECURITY.md`](SECURITY.md)
 
 ## License
 
