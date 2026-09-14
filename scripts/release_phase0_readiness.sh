@@ -200,7 +200,7 @@ run_step "repro install" "$VENV_PY -m pip install .[dev,signing]" "$RELEASE_DIR/
 run_step "cli sanity" "$VENV_SWORN --version" "$RELEASE_DIR/sworn-cli.log"
 run_step "module help" "$VENV_PY -m sworn --help" "$RELEASE_DIR/sworn-module-help.txt"
 
-run_step "tests" "$VENV_PY -m pytest tests -q --tb=short" "$RELEASE_DIR/pytest-full.log"
+run_step "tests" "$VENV_PY -m pytest tests -ra --tb=short" "$RELEASE_DIR/pytest-full.log"
 
 run_step "governance strict" "$VENV_PY ~/.codex/scripts/validate_governance.py --root . --strict" "$RELEASE_DIR/validate_governance.log"
 run_step "bootstrap check" "bash ~/.codex/scripts/bootstrap_codex_governance.sh --repo-root . --check-only" "$RELEASE_DIR/bootstrap_gov.log"

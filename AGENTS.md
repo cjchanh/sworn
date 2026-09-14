@@ -10,8 +10,8 @@ Deterministic, fail-closed AI code governance for git-based engineering workflow
 - Release evidence MUST be captured before any external exposure step.
 
 ## Allowed Commands
-- `python3 -m pip install -e ".[dev]" && python3 -m pytest tests -q --tb=short` — local source verification
-- `PYTHONPATH=src python3 -m pytest tests -q --tb=short` — no-install variant; signing tests skip without pynacl
+- `python3 -m pip install -e ".[dev]" && python3 -m pytest tests -ra --tb=short` — local source verification
+- `PYTHONPATH=src python3 -m pytest tests -ra --tb=short` — no-install variant; signing tests skip without pynacl
 - `python3 ~/.codex/scripts/validate_governance.py --root . --json --strict` — repo governance gate
 - `bash ~/.codex/scripts/bootstrap_codex_governance.sh --repo-root . --check-only` — bootstrap gate
 - `bash ~/.codex/scripts/run_full_verification.sh` — full verification chain
