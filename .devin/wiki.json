@@ -1,0 +1,68 @@
+{
+  "repo_notes": [
+    {
+      "content": "Sworn is a deterministic, fail-closed git governance tool for AI-assisted commits: a path-pattern gate plus a hash-chained, optionally Ed25519-signed evidence log, published to PyPI as `sworncode` with zero runtime dependencies. Core invariant: the enforceable path is `sworn ci-check` as a required CI status check — the local `sworn check` pre-commit hook is developer feedback only and `--no-verify` skips it. Design law: honest-scope documentation — the repo states what it refuses AND what it cannot prove (actor identity is self-asserted, log-tail truncation is undetectable without an out-of-band head-hash pin, repo-stored public keys do not prove organizational trust).",
+      "author": "Devin"
+    },
+    {
+      "content": "Layout: src/sworn/cli.py is the command surface (init, check, ci-check, verify, report, status, keygen); pipeline.py orchestrates gate-then-kernel evaluation; resolver.py resolves repo root and CI diffs; config.py parses .sworn/config.toml. gates/ holds the staged-path gate implementations (security.py sensitive-path regexes, allowlist.py, identity.py). kernels/ has the pluggable evaluator layer: sdk.py defines KernelInput/KernelResult and the loader, plus builtin security/allowlist/audit kernels and the kernels/cmmc/ family (ac_access, au_records, au_traceability, cm_access, cm_baseline, cm_settings, evidence_integrity, sc_boundary, si_flaw) — CMMC is evidence-support only, it does not certify compliance. evidence/ implements the tamper-evident chain: log.py (hash chain), signing.py (Ed25519 via optional PyNaCl), report.py and cmmc_report.py. docs/ is first-class: KNOWN_BOUNDARIES.md lists limits with file:line evidence, SIGNING.md the trust model, DEPLOYMENT.md the CI enforcement path, config.md the TOML keys, custom-kernels.md the SDK contract. scripts/ drives the release evidence flow (release_phase0_readiness.sh, phase1 capture, release_smoke.py, release_static_guard.py); action.yml exposes the GitHub Action. tests/ mirrors src/ one-to-one (~30 files) and skips signing tests cleanly without PyNaCl. Prioritize the gate/kernel/evidence architecture and the boundary docs; de-emphasize vendored example files and release-evidence artifacts.",
+      "author": "Devin"
+    },
+    {
+      "content": "Vocabulary: 'gate' = staged-path/CI-diff path-pattern check; 'kernel' = pluggable evaluator producing KernelResult{decision: PASS|BLOCKED, triggered_rules, evidence_summary, required_next_action}; 'chain' = the append-only .sworn/evidence.jsonl hash chain verified by `sworn verify` (EMPTY/VALID/BROKEN); 'sensitive-path patterns' = case-insensitive regexes like (^|/)(crypto|auth|gates|licensing|keys)/ applied raw, Unicode-normalized, confusable-folded, collapsed, and on symlink targets; 'evidence-support' = CMMC report language that must never claim certification. First-class sources: README.md (refuses/cannot-prove lists), docs/KNOWN_BOUNDARIES.md, COMPLIANCE_SCOPE.md, GOVERNANCE_OVERVIEW.md, RELEASE_PROCESS.md, and AGENTS.md invariants (release claims must match shipped metadata; gates must fail closed).",
+      "author": "Devin"
+    }
+  ],
+  "pages": [
+    {
+      "title": "Overview",
+      "purpose": "What Sworn is: a path-pattern git gate plus hash-chained evidence log for AI-assisted commits, zero-dependency Python 3.10+, published as `sworncode`. Cover the enforceable-vs-convenience split (`sworn ci-check` required status check vs skippable local hook), the fail-closed posture, and the src/sworn layout (cli, pipeline, resolver, config, gates/, kernels/, evidence/).",
+      "parent": null
+    },
+    {
+      "title": "Getting Started",
+      "purpose": "Install (`pip install sworncode` or `pip install -e \".[dev]\"`), `sworn init` writing .sworn/config.toml and installing the local hook, editing sensitive-path patterns in config.toml, running `sworn check` locally and wiring `sworn ci-check --base origin/main` as a required CI job. Point to docs/DEPLOYMENT.md and docs/config.md.",
+      "parent": "Overview"
+    },
+    {
+      "title": "The Gate Pipeline",
+      "purpose": "Document src/sworn/pipeline.py and gates/: how staged files or PR diffs flow through the security gate (sensitive-path matching with Unicode normalization, confusable folding, collapsing, symlink-target resolution), allowlist and identity gates, the index-unreadable and symlink-escapes-repo blocks, and where exit codes are decided. Note path patterns only — contents are never scanned.",
+      "parent": null
+    },
+    {
+      "title": "Kernel SDK and Built-in Kernels",
+      "purpose": "Document src/sworn/kernels/sdk.py (KernelInput, KernelResult, EvaluateFn, load_builtin_kernels), the builtin security/allowlist/audit kernels, and docs/custom-kernels.md for writing new kernels. Explain how kernels evaluate after gates and how their decisions surface in the report.",
+      "parent": null
+    },
+    {
+      "title": "CMMC Kernel Family",
+      "purpose": "Document src/sworn/kernels/cmmc/ (ac_access, au_records, au_traceability, cm_access, cm_baseline, cm_settings, evidence_integrity, sc_boundary, si_flaw), the CMMC report path in evidence/cmmc_report.py, and the compliance scope caveat from COMPLIANCE_SCOPE.md — evidence support only, never certification.",
+      "parent": "Kernel SDK and Built-in Kernels"
+    },
+    {
+      "title": "Evidence Chain, Signing, and Verification",
+      "purpose": "Document evidence/log.py (append-only hash-chained JSONL), evidence/signing.py (Ed25519 via optional PyNaCl), `sworn verify` verdicts EMPTY/VALID/BROKEN, and the honest limits from docs/KNOWN_BOUNDARIES.md: actor identity is self-asserted, tail truncation is undetectable without an out-of-band head-hash pin, repo-stored keys do not prove org trust, `sworn report` exit code is not an attestation.",
+      "parent": null
+    },
+    {
+      "title": "CLI and Commands",
+      "purpose": "Document src/sworn/cli.py command surface (init, check, ci-check, verify, report incl. --json and --cmmc, status, keygen, --version, python -m sworn), how each command maps to pipeline/gates/evidence modules, and resolver.py's repo-root and CI-diff resolution.",
+      "parent": null
+    },
+    {
+      "title": "Release Evidence and Packaging",
+      "purpose": "Document the release flow: scripts/release_phase0_readiness.sh (evidence generation before exposure), release_phase1_capture.sh, release_smoke.py, release_static_guard.py, release-evidence/<tag>/ artifacts, RELEASE_PROCESS.md readiness checklist, action.yml GitHub Action surface, and the invariant that PyPI/git-tag/local version metadata must agree before publishing.",
+      "parent": null
+    },
+    {
+      "title": "Testing and CI",
+      "purpose": "Document tests/ (per-module suites mirroring src/: gates, kernels incl. kernels/cmmc, evidence, cli, ci_check, staged_path_gate, distribution_metadata, release_automation; conftest.py and gitutil.py helpers), the no-PyNaCl skip behavior, and .github/workflows/ci.yml + codeql.yml.",
+      "parent": null
+    },
+    {
+      "title": "Design and Boundary Documents",
+      "purpose": "Index the first-class docs: docs/KNOWN_BOUNDARIES.md (cannot-prove list with file:line evidence), docs/SIGNING.md, docs/DEPLOYMENT.md, docs/config.md, docs/custom-kernels.md, docs/report-example.md, COMPLIANCE_SCOPE.md, GOVERNANCE_OVERVIEW.md, SECURITY.md, CONTRIBUTING.md, RELEASE_PROCESS.md, REVIEW.md, UPGRADE_REPORT.md.",
+      "parent": null
+    }
+  ]
+}
